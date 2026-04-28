@@ -41,7 +41,7 @@ catalog:
 
   # Observability
   "@opentelemetry/api": ^1.9.0
-  "@opentelemetry/sdk-node": ^0.53.0
+  "@opentelemetry/sdk-node": ^0.215.0
 
   # Kubernetes
   "@kubernetes/client-node": ^1.0.0
