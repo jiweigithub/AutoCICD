@@ -1,0 +1,33 @@
+{
+  "name": "ulw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ulw (UltraWork) - AI-driven full-process R&D platform",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --filter @ulw/api-gateway dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm run '/^lint:.*/'",
+    "lint:eslint": "eslint . --max-warnings 0",
+    "lint:oxlint": "oxlint --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "pnpm -r clean",
+    "deps:check": "pnpm dlx depcheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "oxlint": "^0.15.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
