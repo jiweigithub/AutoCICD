@@ -6,3 +6,14 @@ dist/
 .DS_Store
 coverage/
 .nyc_output/
+*.tsbuildinfo
+cache/
+.pnpm-store/
+vitest-report/
+**/generated/
+tmp/
+.pulumi/
+Pulumi.*.yaml
+*.key
+*.pem
+vault/
