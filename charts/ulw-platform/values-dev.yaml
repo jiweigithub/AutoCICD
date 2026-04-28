@@ -1,0 +1,61 @@
+# Dev overrides — single replica, no persistence, minimal resources
+global:
+  environment: dev
+
+orchestrator:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+supervisor:
+  replicaCount: 1
+
+agentRuntime:
+  maxConcurrency: 1
+  jobTTL: 300
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+postgresql:
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+redis:
+  persistence:
+    enabled: false
+  maxmemory: "256mb"
+
+nats:
+  jetstream:
+    maxMemory: "64MB"
+    maxStorage: "256MB"
+
+minio:
+  persistence:
+    enabled: false
+
+apiGateway:
+  replicaCount: 1
+
+observability:
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false

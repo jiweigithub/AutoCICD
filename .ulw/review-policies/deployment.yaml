@@ -1,0 +1,57 @@
+deployment:
+  strategies:
+    canary:
+      steps:
+        - percentage: 10
+          duration: 5m
+          auto_promote: false
+          metrics:
+            error_rate_max: 0.01
+            p95_latency_max_ms: 2000
+        - percentage: 25
+          duration: 10m
+          auto_promote: false
+          metrics:
+            error_rate_max: 0.01
+            p95_latency_max_ms: 2000
+        - percentage: 50
+          duration: 15m
+          auto_promote: false
+          metrics:
+            error_rate_max: 0.005
+            p95_latency_max_ms: 1500
+        - percentage: 100
+          duration: 0
+          auto_promote: false
+          metrics:
+            error_rate_max: 0.005
+            p95_latency_max_ms: 1500
+
+    blue-green:
+      description: "Deploy new version alongside existing, switch traffic atomically"
+      pre-warming: true
+      smoke-tests: true
+      switch-delay: 0
+
+  rollback:
+    auto-rollback:
+      enabled: true
+      trigger:
+        error_rate_spike: 0.05
+        p95_latency_spike_ms: 3000
+        health_check_failures: 3
+        duration: 2m
+      strategy: revert-to-previous
+      max-duration: 5m
+
+  environments:
+    staging:
+      requires_approval: false
+      auto_deploy_on_main: true
+      namespace: ulw-staging
+    production:
+      requires_approval: true
+      auto_deploy_on_tag: true
+      namespace: ulw-production
+      change_freeze_windows:
+        - "Friday 18:00 - Monday 06:00 UTC"

@@ -1,0 +1,19 @@
+{
+  "name": "@ulw/infrastructure",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "up:dev": "pulumi up --stack dev",
+    "up:staging": "pulumi up --stack staging",
+    "up:prod": "pulumi up --stack production",
+    "preview": "pulumi preview"
+  },
+  "dependencies": {
+    "@pulumi/kubernetes": "^4.20.0",
+    "@pulumi/pulumi": "^3.150.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

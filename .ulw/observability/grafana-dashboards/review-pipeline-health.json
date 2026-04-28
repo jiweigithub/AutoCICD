@@ -1,0 +1,129 @@
+{
+  "title": "Review Pipeline Health",
+  "uid": "ulw-review-pipeline",
+  "refresh": "1m",
+  "panels": [
+    {
+      "title": "Pipeline Success Rate",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "sum(rate(pipeline_runs_success[24h])) / sum(rate(pipeline_runs_total[24h])) * 100",
+          "legendFormat": "24h Success Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "red" },
+              { "value": 80, "color": "yellow" },
+              { "value": 95, "color": "green" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Gate Pass Rates (24h)",
+      "type": "bargauge",
+      "targets": [
+        {
+          "expr": "sum by (gate) (rate(gate_passed_total[24h])) / sum by (gate) (rate(gate_executed_total[24h])) * 100",
+          "legendFormat": "{{gate}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "red" },
+              { "value": 70, "color": "yellow" },
+              { "value": 90, "color": "green" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Gate Duration (P95)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (gate, le) (rate(gate_duration_seconds_bucket[1h])))",
+          "legendFormat": "{{gate}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "title": "Review Findings by Severity",
+      "type": "bargauge",
+      "targets": [
+        {
+          "expr": "sum by (severity) (review_findings_total{status=\"open\"})",
+          "legendFormat": "{{severity}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 5, "color": "yellow" },
+              { "value": 10, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Agent Job Success Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(agent_jobs_completed[1h])) / sum(rate(agent_jobs_started[1h])) * 100",
+          "legendFormat": "Agent job success rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "red" },
+              { "value": 90, "color": "yellow" },
+              { "value": 99, "color": "green" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Test Coverage Trend",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "avg by (package) (test_coverage_percent)",
+          "legendFormat": "{{package}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    }
+  ],
+  "time": { "from": "now-24h", "to": "now" }
+}

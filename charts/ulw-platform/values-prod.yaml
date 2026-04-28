@@ -1,0 +1,71 @@
+# Production overrides — HA config, full persistence, strict resource limits
+global:
+  environment: production
+
+orchestrator:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2
+      memory: 2Gi
+
+supervisor:
+  replicaCount: 3
+
+agentRuntime:
+  maxConcurrency: 10
+  jobTTL: 3600
+  resources:
+    requests:
+      cpu: 1
+      memory: 2Gi
+    limits:
+      cpu: 4
+      memory: 8Gi
+
+postgresql:
+  persistence:
+    enabled: true
+    size: 200Gi
+
+redis:
+  persistence:
+    enabled: true
+    size: 50Gi
+  maxmemory: "4gb"
+
+nats:
+  jetstream:
+    maxMemory: "1GB"
+    maxStorage: "10GB"
+
+minio:
+  persistence:
+    enabled: true
+    size: 500Gi
+
+apiGateway:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2
+      memory: 1Gi
+
+observability:
+  prometheus:
+    enabled: true
+    retentionDays: 30
+  grafana:
+    enabled: true
+  opentelemetry:
+    enabled: true
+
+networkPolicies:
+  enabled: true
+  agentIsolation: true

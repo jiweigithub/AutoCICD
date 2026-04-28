@@ -1,0 +1,30 @@
+{{- if .Values.agentRuntime.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agent-runtime-init
+  namespace: ulw
+  labels:
+    app.kubernetes.io/component: agent-runtime
+    {{- include "ulw-platform.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+spec:
+  ttlSecondsAfterFinished: {{ .Values.agentRuntime.jobTTL }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-runtime
+        app.kubernetes.io/component: agent-runtime
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: ulw-orchestrator
+      containers:
+        - name: agent-runtime
+          image: {{ include "ulw-platform.image" (dict "repository" .Values.agentRuntime.image.repository "tag" .Values.agentRuntime.image.tag) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env: {{- include "ulw-platform.env" . | nindent 12 }}
+          resources: {{- toYaml .Values.agentRuntime.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.agentRuntime.sandbox.securityContext | nindent 12 }}
+{{- end }}

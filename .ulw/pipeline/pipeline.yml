@@ -1,0 +1,80 @@
+pipeline:
+  name: ulw-5-gate-pipeline
+  description: "Full-process R&D pipeline: Architecture Design → Code Development → Smart Review → Automated Testing → One-Click Deployment"
+
+  gates:
+    - id: architecture-design
+      name: Architecture Design (AD)
+      order: 1
+      description: "Design system architecture, produce design documents and ADRs"
+      inputs: [requirements, project-context]
+      outputs: [architecture-doc, adr, component-spec]
+      required: true
+      automatable: false
+      review:
+        type: human
+        required: true
+
+    - id: code-development
+      name: Code Development (CG)
+      order: 2
+      description: "Generate code following architecture specs, TDD enforced"
+      inputs: [architecture-doc, component-spec, domain-models]
+      outputs: [source-code, unit-tests, integration-tests]
+      required: true
+      automatable: true
+      checks:
+        - tdd-guard
+        - conventional-commit
+        - no-cross-bc-imports
+
+    - id: smart-review
+      name: Smart Review (CR)
+      order: 3
+      description: "Automated code review with architecture validation, security scanning, code quality"
+      inputs: [source-code, tests, architecture-doc]
+      outputs: [review-report, security-report, quality-score]
+      required: true
+      automatable: true
+      checks:
+        - architecture-consistency
+        - security-scan
+        - code-quality
+        - test-coverage
+        - dependency-audit
+
+    - id: automated-testing
+      name: Automated Testing (TA)
+      order: 4
+      description: "Contract tests, E2E tests, performance tests, chaos engineering"
+      inputs: [source-code, review-report]
+      outputs: [test-report, contract-test-results, performance-metrics]
+      required: true
+      automatable: true
+      checks:
+        - unit-tests
+        - integration-tests
+        - contract-tests
+        - e2e-tests
+        - performance-benchmark
+
+    - id: one-click-deployment
+      name: One-Click Deployment (DP)
+      order: 5
+      description: "Canary deployment with automated rollback, DORA metrics tracking"
+      inputs: [test-report, performance-metrics]
+      outputs: [deployment-status, dora-metrics-update]
+      required: true
+      automatable: true
+      checks:
+        - canary-health
+        - dora-lead-time
+        - dora-failure-rate
+        - dora-change-failure-rate
+
+  metrics:
+    dora:
+      deployment_frequency: "Daily minimum target"
+      lead_time_for_changes: "Less than 1 hour"
+      change_failure_rate: "Less than 5%"
+      time_to_restore_service: "Less than 1 hour"

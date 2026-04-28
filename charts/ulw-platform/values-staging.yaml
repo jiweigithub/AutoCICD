@@ -1,0 +1,26 @@
+# Staging overrides — moderate scaling, persistent storage
+global:
+  environment: staging
+
+orchestrator:
+  replicaCount: 2
+
+supervisor:
+  replicaCount: 2
+
+agentRuntime:
+  maxConcurrency: 5
+
+postgresql:
+  persistence:
+    size: 50Gi
+
+apiGateway:
+  replicaCount: 2
+
+observability:
+  prometheus:
+    enabled: true
+    retentionDays: 7
+  grafana:
+    enabled: true

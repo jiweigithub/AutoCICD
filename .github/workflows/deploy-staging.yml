@@ -1,0 +1,84 @@
+name: Deploy to Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy (leave empty for latest)"
+        required: false
+        type: string
+      dry_run:
+        description: "Dry run (preview only)"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  PNPM_VERSION: "9"
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: staging
+      url: https://staging.ulw.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build Docker images
+        run: |
+          echo "Building Docker images..."
+          docker build -t ghcr.io/ulw/orchestrator:staging -f Dockerfile .
+          docker build -t ghcr.io/ulw/supervisor:staging -f Dockerfile .
+          docker build -t ghcr.io/ulw/api-gateway:staging -f Dockerfile .
+
+      - name: Login to GHCR
+        if: inputs.dry_run == false
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push images
+        if: inputs.dry_run == false
+        run: |
+          docker push ghcr.io/ulw/orchestrator:staging
+          docker push ghcr.io/ulw/supervisor:staging
+          docker push ghcr.io/ulw/api-gateway:staging
+
+      - name: Deploy with Helm
+        if: inputs.dry_run == false
+        run: |
+          helm upgrade --install ulw-staging ./charts/ulw-platform \
+            -f ./charts/ulw-platform/values-staging.yaml \
+            --namespace ulw-staging \
+            --create-namespace \
+            --set global.imagePullPolicy=Always \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        if: inputs.dry_run == false
+        run: |
+          kubectl rollout status deployment/orchestrator -n ulw-staging --timeout=5m
+          kubectl rollout status deployment/api-gateway -n ulw-staging --timeout=5m

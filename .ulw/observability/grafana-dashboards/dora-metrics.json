@@ -1,0 +1,136 @@
+{
+  "title": "DORA Metrics",
+  "uid": "ulw-dora-metrics",
+  "refresh": "1m",
+  "panels": [
+    {
+      "title": "Deployment Frequency",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(deployments_total[7d])",
+          "legendFormat": "Deployments/day"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "red" },
+              { "value": 0.14, "color": "yellow" },
+              { "value": 1, "color": "green" }
+            ]
+          },
+          "unit": "deployments/day"
+        }
+      },
+      "description": "Elite: On-demand (multiple per day), High: 1/day-1/week, Medium: 1/week-1/month, Low: <1/month"
+    },
+    {
+      "title": "Lead Time for Changes",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, lead_time_for_changes_seconds_bucket)",
+          "legendFormat": "Median"
+        },
+        {
+          "expr": "histogram_quantile(0.95, lead_time_for_changes_seconds_bucket)",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 3600, "color": "yellow" },
+              { "value": 86400, "color": "orange" },
+              { "value": 604800, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Change Failure Rate",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "sum(rate(deployments_failed_total[30d])) / sum(rate(deployments_total[30d])) * 100",
+          "legendFormat": "CFR %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 5, "color": "yellow" },
+              { "value": 15, "color": "orange" },
+              { "value": 30, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Time to Restore Service",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, time_to_restore_seconds_bucket)",
+          "legendFormat": "P95 MTTR"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 3600, "color": "yellow" },
+              { "value": 86400, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Pipeline Gate Duration",
+      "type": "bargauge",
+      "targets": [
+        {
+          "expr": "avg by (gate) (pipeline_gate_duration_seconds)",
+          "legendFormat": "{{gate}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "title": "Agent Runtime Concurrency",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent_runtime_agents_active",
+          "legendFormat": "Active agents"
+        },
+        {
+          "expr": "agent_runtime_agents_queued",
+          "legendFormat": "Queued agents"
+        },
+        {
+          "expr": "agent_runtime_max_concurrency",
+          "legendFormat": "Max concurrency"
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-7d", "to": "now" }
+}

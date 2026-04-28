@@ -1,0 +1,58 @@
+rules:
+  - id: ulw-no-eval-in-production
+    pattern: |
+      eval($VAR)
+    message: "eval() is forbidden in production code"
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-95"
+      owasp: "A03:2021 - Injection"
+
+  - id: ulw-no-child-process-in-agent
+    pattern: |
+      child_process.$METHOD(...)
+    message: "child_process usage in agent code must be documented and reviewed"
+    languages: [typescript, javascript]
+    severity: WARNING
+    paths:
+      include:
+        - "packages/bc/cg/**"
+        - "packages/core/agent-runtime/**"
+    metadata:
+      cwe: "CWE-78"
+
+  - id: ulw-no-hardcoded-secrets
+    pattern-either:
+      - pattern: |
+          const $P = "$VALUE"
+          ...
+          $P.includes(...password|...secret|...token|...key)
+      - pattern: |
+          process.env.$VAR = "$VALUE"
+    message: "Hardcoded credentials detected"
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+
+  - id: ulw-result-type-unhandled
+    pattern: |
+      const $RESULT = $FUNC(...)
+      ...
+      $RESULT.unwrap()
+    message: "Unwrap on Result<T,E> may throw — use match() or isOk() first"
+    languages: [typescript]
+    severity: WARNING
+
+  - id: ulw-no-console-in-production
+    pattern: console.log($...ARGS)
+    message: "Use structured logging instead of console.log"
+    languages: [typescript, javascript]
+    severity: WARNING
+    paths:
+      include:
+        - "packages/bc/**"
+        - "packages/core/**"
+        - "apps/**"

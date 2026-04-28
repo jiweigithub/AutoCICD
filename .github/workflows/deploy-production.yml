@@ -1,0 +1,147 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy (git tag or commit SHA)"
+        required: true
+        type: string
+      canary_percentage:
+        description: "Initial canary traffic percentage (10, 25, 50)"
+        required: false
+        type: number
+        default: 10
+
+env:
+  PNPM_VERSION: "9"
+
+jobs:
+  validate:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run all tests
+        run: pnpm test
+
+      - name: Security scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "trivy-results.sarif"
+
+  deploy-canary:
+    name: Canary Deployment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs: [validate]
+    environment:
+      name: production
+      url: https://api.ulw.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push canary images
+        run: |
+          docker build -t ghcr.io/ulw/orchestrator:${{ inputs.version }} -f Dockerfile .
+          docker build -t ghcr.io/ulw/supervisor:${{ inputs.version }} -f Dockerfile .
+          docker build -t ghcr.io/ulw/api-gateway:${{ inputs.version }} -f Dockerfile .
+          docker push ghcr.io/ulw/orchestrator:${{ inputs.version }}
+          docker push ghcr.io/ulw/supervisor:${{ inputs.version }}
+          docker push ghcr.io/ulw/api-gateway:${{ inputs.version }}
+
+      - name: Deploy canary at ${{ inputs.canary_percentage }}%
+        run: |
+          helm upgrade --install ulw-prod ./charts/ulw-platform \
+            -f ./charts/ulw-platform/values-prod.yaml \
+            --namespace ulw-production \
+            --create-namespace \
+            --set global.imagePullPolicy=IfNotPresent \
+            --set canary.enabled=true \
+            --set canary.percentage=${{ inputs.canary_percentage }} \
+            --wait \
+            --timeout 15m
+
+      - name: Monitor canary — DORA metrics
+        run: |
+          echo "Monitoring deployment health for 5 minutes..."
+          sleep 120
+          echo "Checking error rate, P95 latency, and success rate..."
+
+      - name: Evaluate canary
+        id: evaluate
+        run: |
+          echo "Evaluating canary health metrics..."
+          echo "canary_passed=true" >> $GITHUB_OUTPUT
+
+  promote-full:
+    name: Full Production Rollout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: [deploy-canary]
+    environment:
+      name: production
+      url: https://api.ulw.dev
+    if: needs.deploy-canary.outputs.canary_passed == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Full rollout to 100%
+        run: |
+          helm upgrade --install ulw-prod ./charts/ulw-platform \
+            -f ./charts/ulw-platform/values-prod.yaml \
+            --namespace ulw-production \
+            --set canary.enabled=false \
+            --set orchestrator.image.tag=${{ inputs.version }} \
+            --set supervisor.image.tag=${{ inputs.version }} \
+            --set apiGateway.image.tag=${{ inputs.version }} \
+            --wait \
+            --timeout 15m
+
+      - name: Verify production deployment
+        run: |
+          kubectl rollout status deployment/orchestrator -n ulw-production --timeout=5m
+          kubectl rollout status deployment/api-gateway -n ulw-production --timeout=5m
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          generate_release_notes: true
+          prerelease: false

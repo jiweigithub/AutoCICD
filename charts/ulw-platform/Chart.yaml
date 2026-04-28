@@ -1,0 +1,14 @@
+apiVersion: v2
+name: ulw-platform
+description: ulw (UltraWork) — AI-driven full-process R&D platform Helm chart
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ulw
+  - ultrawork
+  - ai
+  - rnd-platform
+maintainers:
+  - name: ulw-team
+    email: team@ulw.dev

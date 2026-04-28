@@ -1,0 +1,50 @@
+deployment_strategies:
+  blue_green:
+    description: "Two identical environments (blue/active, green/idle). Traffic switches atomically."
+    traffic_switch: instant
+    pre_warming:
+      enabled: true
+      min_replicas: 2
+    rollback:
+      mechanism: traffic-revert
+      rto_seconds: 30
+
+  canary:
+    description: "Progressive traffic shifting from old to new version."
+    phases:
+      - { weight: 10, duration: 300, metrics: [error_rate, latency_p95, cpu, memory] }
+      - { weight: 25, duration: 600, metrics: [error_rate, latency_p95, cpu, memory] }
+      - { weight: 50, duration: 900, metrics: [error_rate, latency_p95, cpu, memory] }
+      - { weight: 100, duration: 0, metrics: [error_rate, latency_p95, cpu, memory] }
+    auto_promote:
+      enabled: false
+    auto_rollback:
+      enabled: true
+      triggers:
+        error_rate_spike: 0.05
+        p95_latency_spike_ms: 3000
+        consecutive_health_failures: 3
+
+  rolling:
+    description: "Gradually replace instances with new version."
+    max_surge: 1
+    max_unavailable: 0
+    batch_size: 1
+
+  recreate:
+    description: "Kill all instances then create new ones (for stateful services)."
+    apply_to: [postgresql, redis, minio]
+
+environments:
+  dev:
+    strategy: recreate
+    auto_deploy: false
+  staging:
+    strategy: rolling
+    auto_deploy: true
+    trigger: push-to-main
+  production:
+    strategy: canary
+    auto_deploy: false
+    trigger: git-tag
+    approval_required: true

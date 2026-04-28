@@ -1,0 +1,82 @@
+{
+  "id": "ulw",
+  "realm": "ulw",
+  "displayName": "ulw Platform",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "clients": [
+    {
+      "clientId": "ulw-api-gateway",
+      "name": "ulw API Gateway",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "https://api.ulw.dev/*"
+      ],
+      "webOrigins": ["+"]
+    },
+    {
+      "clientId": "ulw-agent-runtime",
+      "name": "ulw Agent Runtime",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false
+    },
+    {
+      "clientId": "ulw-cli",
+      "name": "ulw CLI",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:8085/callback",
+        "http://localhost:0/callback"
+      ]
+    }
+  ],
+  "roles": {
+    "realm": [
+      { "name": "platform-admin", "description": "Full platform access" },
+      { "name": "project-manager", "description": "Pipeline and project management" },
+      { "name": "architect", "description": "Architecture design access" },
+      { "name": "developer", "description": "Code generation and review" },
+      { "name": "viewer", "description": "Read-only access" },
+      { "name": "agent", "description": "AI agent service account role" }
+    ]
+  },
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Platform",
+      "lastName": "Admin",
+      "email": "admin@ulw.dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["platform-admin"]
+    }
+  ]
+}

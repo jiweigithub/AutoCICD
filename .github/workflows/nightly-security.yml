@@ -1,0 +1,100 @@
+name: Nightly Security Scan
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 3 AM UTC daily
+  workflow_dispatch:
+
+env:
+  PNPM_VERSION: "9"
+
+jobs:
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/typescript
+            p/nodejs
+            p/supply-chain
+            .ulw/security/semgrep-rules/custom-rules.yaml
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  trivy-scan:
+    name: Trivy Vulnerability Scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan file system
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH,MEDIUM"
+          format: "sarif"
+          output: "trivy-fs.sarif"
+
+      - name: Upload Trivy FS results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "trivy-fs.sarif"
+
+      - name: Scan Dockerfile
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "Dockerfile"
+          severity: "CRITICAL,HIGH"
+          format: "sarif"
+          output: "trivy-dockerfile.sarif"
+
+      - name: Upload Trivy config results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "trivy-dockerfile.sarif"
+
+  npm-audit:
+    name: npm Audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
+
+  report:
+    name: Security Summary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [semgrep, trivy-scan, npm-audit]
+    if: always()
+    steps:
+      - name: Generate security report
+        run: |
+          echo "### Nightly Security Scan Summary — $(date -u +'%Y-%m-%d')" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Semgrep SAST | ${{ needs.semgrep.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trivy Vulnerability | ${{ needs.trivy-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| npm Audit | ${{ needs.npm-audit.result }} |" >> $GITHUB_STEP_SUMMARY

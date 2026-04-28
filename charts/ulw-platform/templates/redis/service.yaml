@@ -1,0 +1,20 @@
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: ulw
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+    {{- include "ulw-platform.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - name: redis
+      port: {{ .Values.redis.service.port }}
+      targetPort: 6379
+      protocol: TCP
+{{- end }}

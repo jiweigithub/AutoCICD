@@ -1,0 +1,207 @@
+# Default values for ulw-platform
+global:
+  environment: dev
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# Orchestrator — main control plane orchestrating the 5-gate pipeline
+orchestrator:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/ulw/orchestrator
+    tag: latest
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  service:
+    type: ClusterIP
+    port: 3000
+
+# Supervisor — monitors agent jobs, enforces policies, watcher
+supervisor:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/ulw/supervisor
+    tag: latest
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Agent Runtime — runs isolated agent tasks in sandboxed pods
+agentRuntime:
+  enabled: true
+  image:
+    repository: ghcr.io/ulw/agent-runtime
+    tag: latest
+  sandbox:
+    runtime: gvisor
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      runAsUser: 1000
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: ["ALL"]
+  maxConcurrency: 3
+  jobTTL: 3600
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 4Gi
+
+# PostgreSQL 16
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+  auth:
+    database: ulw
+    username: ulw
+    password: ""
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: standard
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2
+      memory: 2Gi
+  service:
+    port: 5432
+
+# Redis 7
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  auth:
+    password: ""
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: standard
+  maxmemory: "512mb"
+  maxmemoryPolicy: allkeys-lru
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 768Mi
+  service:
+    port: 6379
+
+# NATS JetStream 2.10+
+nats:
+  enabled: true
+  image:
+    repository: nats
+    tag: "2.10-alpine"
+  auth:
+    token: ""
+  jetstream:
+    enabled: true
+    maxMemory: "256MB"
+    maxStorage: "1GB"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  service:
+    clientPort: 4222
+    monitoringPort: 8222
+
+# MinIO (S3-compatible)
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: "RELEASE.2024-12-18T13-15-44Z"
+  mode: standalone
+  auth:
+    rootUser: minioadmin
+    rootPassword: ""
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: standard
+  defaultBuckets: "ulw-artifacts,ulw-logs,ulw-builds"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  service:
+    apiPort: 9000
+    consolePort: 9001
+
+# API Gateway (NestJS + tRPC)
+apiGateway:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ghcr.io/ulw/api-gateway
+    tag: latest
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 512Mi
+  service:
+    type: ClusterIP
+    httpPort: 8080
+    trpcPort: 9090
+
+# Observability
+observability:
+  prometheus:
+    enabled: true
+    retentionDays: 15
+  grafana:
+    enabled: true
+    adminPassword: ""
+  opentelemetry:
+    enabled: true
+
+# Network Policies
+networkPolicies:
+  enabled: true
+  agentIsolation: true
+
+# Ingress
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  hosts:
+    - api.ulw.dev
+  tls:
+    enabled: true
+    secretName: ulw-tls
+    clusterIssuer: letsencrypt-prod

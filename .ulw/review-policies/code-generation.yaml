@@ -1,0 +1,28 @@
+gate: code-generation
+description: "Rules enforced during the Code Generation (CG) pipeline gate"
+
+rules:
+  tdd-guard:
+    severity: error
+    description: "No production code file written without a corresponding test file in the same commit"
+    enforcement: git-hook
+
+  file-level:
+    no-empty-files: error
+    no-only-console-log: error
+    max-file-length:
+      severity: warning
+      value: 500
+
+  agent-rules:
+    no-file-write-without-supervisor-approval:
+      severity: error
+      description: "Agent code generation must be approved by the Supervisory gate"
+
+  commit-conventions:
+    conventional-commit:
+      severity: error
+      pattern: "^(feat|fix|chore|docs|refactor|test|perf|ci|build|revert)(\\(.+\\))?!?: .+"
+    no-ai-slop-commits:
+      severity: warning
+      description: "Review commit messages for AI-generated filler language"

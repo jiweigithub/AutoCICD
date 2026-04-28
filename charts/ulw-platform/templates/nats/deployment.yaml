@@ -1,0 +1,55 @@
+{{- if .Values.nats.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+  namespace: ulw
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/component: messaging
+    {{- include "ulw-platform.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nats
+        app.kubernetes.io/component: messaging
+        {{- include "ulw-platform.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: nats
+          image: {{ include "ulw-platform.image" (dict "repository" .Values.nats.image.repository "tag" .Values.nats.image.tag) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.nats.service.clientPort }}
+              name: client
+              protocol: TCP
+            - containerPort: {{ .Values.nats.service.monitoringPort }}
+              name: monitoring
+              protocol: TCP
+          args:
+            - "--jetstream"
+            - "--max_memory"
+            - {{ .Values.nats.jetstream.maxMemory | quote }}
+            - "--max_store"
+            - {{ .Values.nats.jetstream.maxStorage | quote }}
+          resources: {{- toYaml .Values.nats.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.nats.service.monitoringPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.nats.service.monitoringPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+{{- end }}

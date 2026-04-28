@@ -1,0 +1,42 @@
+{{- if .Values.supervisor.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: supervisor
+  namespace: ulw
+  labels:
+    app.kubernetes.io/component: supervisor
+    {{- include "ulw-platform.labels" . | nindent 4 }}
+spec:
+  serviceName: supervisor
+  replicas: {{ .Values.supervisor.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: supervisor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: supervisor
+        app.kubernetes.io/component: supervisor
+        {{- include "ulw-platform.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: ulw-orchestrator
+      containers:
+        - name: supervisor
+          image: {{ include "ulw-platform.image" (dict "repository" .Values.supervisor.image.repository "tag" .Values.supervisor.image.tag) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env: {{- include "ulw-platform.env" . | nindent 12 }}
+          resources: {{- toYaml .Values.supervisor.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+{{- end }}

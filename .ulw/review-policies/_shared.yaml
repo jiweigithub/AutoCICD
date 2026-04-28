@@ -1,0 +1,61 @@
+rules:
+  typescript:
+    no-any:
+      severity: error
+      description: "TypeScript 'any' is forbidden — use 'unknown' or proper types"
+    no-ts-ignore:
+      severity: error
+      description: "@ts-ignore is forbidden — fix the underlying type issue"
+    strict-mode:
+      severity: error
+      description: "strict: true in tsconfig.json with noUncheckedIndexedAccess, noUnusedLocals, noUnusedParameters"
+    no-type-assertion:
+      severity: warning
+      description: "Prefer type guards and validation over 'as' casts"
+    consistent-type-imports:
+      severity: error
+      description: "Use 'import type' for type-only imports"
+    no-floating-promises:
+      severity: error
+      description: "All Promises must be awaited, returned, or voided"
+
+  architecture:
+    no-cross-bc-imports:
+      severity: error
+      description: "Bounded contexts must not import directly from each other — use events"
+    no-circular-dependencies:
+      severity: error
+      description: "Zero circular dependencies between packages"
+    acl-only-external:
+      severity: error
+      description: "Anti-corruption layers must be the only layer calling external services"
+
+  testing:
+    no-untested-code:
+      severity: error
+      description: "Every production file must have a corresponding test file"
+    no-skipped-tests-in-main:
+      severity: error
+      description: "No skipped tests on main branch"
+    coverage-threshold:
+      severity: error
+      value: 80
+
+  security:
+    no-eval:
+      severity: error
+      description: "eval() and Function() constructor are forbidden"
+    no-child-process:
+      severity: warning
+      description: "child_process usage must be documented and reviewed"
+    no-hardcoded-secrets:
+      severity: error
+      description: "No hardcoded passwords, tokens, or API keys"
+    dependency-audit:
+      severity: error
+      description: "CI must fail on high/critical CVEs"
+
+  docs:
+    architecture-decision-records:
+      severity: info
+      description: "Significant architecture decisions must produce an ADR in docs/adr/"

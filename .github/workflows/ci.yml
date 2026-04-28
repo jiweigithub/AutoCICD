@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: "9"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: ESLint
+        run: pnpm lint:eslint
+
+      - name: Oxlint
+        run: pnpm lint:oxlint
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: TypeScript type check
+        run: pnpm typecheck
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+  test:
+    name: Test (${{ matrix.package }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - "@ulw/shared-types"
+          - "@ulw/shared-domain"
+          - "@ulw/shared-events"
+          - "@ulw/shared-config"
+          - "@ulw/bc-pm"
+          - "@ulw/bc-ad"
+          - "@ulw/bc-cg"
+          - "@ulw/bc-cr"
+          - "@ulw/bc-ta"
+          - "@ulw/bc-dp"
+          - "@ulw/core-orchestrator"
+          - "@ulw/core-supervisor"
+          - "@ulw/acl-opencode"
+          - "@ulw/acl-openclaw"
+          - "@ulw/acl-git"
+          - "@ulw/acl-cicd"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Test ${{ matrix.package }}
+        run: pnpm --filter ${{ matrix.package }} test
+
+  test-e2e:
+    name: E2E Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [build]
+    if: contains(github.event.pull_request.labels.*.name, 'e2e') || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: pnpm --filter @ulw/e2e test
+
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [lint, typecheck, build, test]
+    if: always()
+    steps:
+      - name: Collect results
+        env:
+          LINT_RESULT: ${{ needs.lint.result }}
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          echo "### CI Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint | $LINT_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Type Check | $TYPECHECK_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | $BUILD_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | $TEST_RESULT |" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$LINT_RESULT" != "success" ] || [ "$TYPECHECK_RESULT" != "success" ] || [ "$BUILD_RESULT" != "success" ] || [ "$TEST_RESULT" != "success" ]; then
+            echo "Some jobs failed"
+            exit 1
+          fi
