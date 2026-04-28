@@ -13,7 +13,8 @@ vitest-report/
 **/generated/
 tmp/
 .pulumi/
-Pulumi.*.yaml
+.pulumi/Pulumi.*.yaml
+# Pulumi stack configs (Pulumi.dev.yaml etc.) are committed intentionally
 *.key
 *.pem
 vault/
