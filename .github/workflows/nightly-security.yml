@@ -44,7 +44,7 @@ jobs:
           output: "trivy-fs.sarif"
 
       - name: Upload Trivy FS results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: "trivy-fs.sarif"
 
@@ -58,7 +58,7 @@ jobs:
           output: "trivy-dockerfile.sarif"
 
       - name: Upload Trivy config results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: "trivy-dockerfile.sarif"
 
