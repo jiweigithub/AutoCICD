@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "incremental": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": false,
+    "paths": {
+      "@ulw/shared-types": ["./packages/shared/types/src"],
+      "@ulw/shared-domain": ["./packages/shared/domain/src"],
+      "@ulw/shared-events": ["./packages/shared/events/src"],
+      "@ulw/shared-config": ["./packages/shared/config/src"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "coverage", "tmp", ".pnpm-store"]
+}

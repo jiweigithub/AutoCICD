@@ -1,0 +1,18 @@
+{
+  "rules": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "error",
+    "style": "error",
+    "perf": "error"
+  },
+  "excludePatterns": ["dist", "node_modules", "coverage", "generated"],
+  "overrides": [
+    {
+      "pathPattern": "**/*.test.ts",
+      "rules": {
+        "correctness": "allow"
+      }
+    }
+  ]
+}
