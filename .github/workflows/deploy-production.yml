@@ -24,7 +24,7 @@ jobs:
     environment:
       name: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.version }}
 
@@ -68,7 +68,7 @@ jobs:
       name: production
       url: https://api.ulw.dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -120,7 +120,7 @@ jobs:
       url: https://api.ulw.dev
     if: needs.deploy-canary.outputs.canary_passed == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Full rollout to 100%
         run: |
