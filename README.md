@@ -1,46 +1,74 @@
 # ulw (UltraWork)
 
-AI 驱动的全流程研发平台 — 架构设计 → 编码开发 → 智能审查 → 自动化测试 → 一键部署，形成闭环自动化。
+**SDD+TDD pipeline platform** — write a Markdown spec, get production-ready deployed code. No manual coding required.
 
-## 技术栈
+```
+Markdown Spec → Architecture Design → TDD Code Gen → Code Review → Automated Testing → One-Click Deploy
+```
 
-TypeScript 5.7+ · Node.js 22+ · NestJS 10.x · tRPC 11.x · pnpm 9.x · PostgreSQL 16+ (Drizzle ORM) · Redis 7+ · NATS JetStream · MinIO · Vitest 3.x · Playwright · Kubernetes 1.32+ · Pulumi · ArgoCD · OpenTelemetry
+## How It Works
 
-## 快速开始
+1. You write a `spec.md` (user stories, data models, API contracts, constraints) and commit it to Git
+2. OpenClaw receives the webhook, parses the spec, and dispatches agents through 6 pipeline stages
+3. OpenCode generates TypeScript code using strict TDD (RED → GREEN → REFACTOR)
+4. 6 parallel review sub-agents audit the code for quality, security, architecture, style, dependencies, and contracts
+5. Automated testing runs at 4 levels: unit, integration, contract, and E2E
+6. After your approval, a canary deployment rolls out with automatic health checks and rollback
+
+## Architecture (v2)
+
+OpenClaw is the central gateway and orchestration engine. OpenCode is the TDD coding runtime. Pipeline state is session-based (OpenClaw + Redis). Artifacts are stored as JSON in MinIO. No PostgreSQL, no NATS message bus, no NestJS API gateway.
+
+See [DESIGN_v2.md](docs/DESIGN_v2.md) for the full architecture document.
+
+## Quick Start
 
 ```bash
-pnpm install          # 安装依赖
-pnpm build            # 构建所有包
-pnpm typecheck        # 类型检查
-pnpm lint             # ESLint + Oxlint
-pnpm test             # 运行测试
-docker compose up -d  # 启动本地开发环境 (PG, Redis, NATS, MinIO, Keycloak)
+pnpm install              # Install dependencies
+pnpm build                # Build all packages
+pnpm typecheck            # TypeScript type checking
+pnpm lint                 # ESLint + Oxlint
+pnpm test                 # Run all tests
+docker compose up -d      # Start local services (Redis, MinIO, Keycloak)
 ```
 
-## 项目结构
+## Project Structure
 
 ```
-packages/shared/   — 领域类型、事件、DDD 基类、配置
-packages/bc/       — 6 个限界上下文 (PM, AD, CG, CR, TA, DP)
-packages/core/     — 编排器、监督器
-packages/acl/      — 防腐层 (OpenCode, OpenClaw, Git, CI/CD)
-apps/api-gateway/  — NestJS API 网关 (REST + tRPC)
-agents/            — 13 个智能体身份模板
-skills/            — 6 个 OpenCode 技能定义
-infrastructure/    — Pulumi IaC · Helm Charts
-docs/              — 设计方案 (中/英) · 模块完成计划
+packages/shared/       — DDD base classes, shared types, event schemas, config loader
+packages/pipeline/     — Pipeline state types (PipelineRun, StageResult, PipelineStage)
+packages/acl/          — Anti-corruption layer interfaces (OpenCode, OpenClaw, Git, CI/CD)
+agents/                — Agent identities (7 pipeline stage agents + 6 review sub-agents)
+skills/                — Reusable skill definitions (8 planned)
+infrastructure/        — Pulumi IaC, Helm charts
+.ulw/                  — Governance policies (review thresholds, deployment strategies, security rules)
+docs/                  — Design documents, migration plans
+openclaw.config.yml    — Single-file configuration for the entire platform
 ```
 
-## 设计文档
+## Pipeline Stages
 
-- [完整设计方案 (英文)](docs/DESIGN.md)
-- [完整设计方案 (中文)](docs/DESIGN_zh.md)
-- [模块完成计划](docs/MODULE_PLAN.md)
+| Stage | Agent | What Happens |
+|-------|-------|-------------|
+| 1. Spec Parsing | `spec-parser` | Parses `spec.md` into Zod-validated structured JSON |
+| 2. Architecture Design | `architect` | Designs DDD aggregates, API contracts, data models, file tree |
+| 3. TDD Code Generation | `tdd-coder` | Generates TypeScript code via RED→GREEN→REFACTOR per file |
+| 4. Code Review | `reviewer` + 6 sub-agents | Parallel review: static analysis, security, architecture, style, dependencies, contracts |
+| 5. Automated Testing | `tester` | Unit → Integration → Contract → E2E tests with coverage gates |
+| 6. One-Click Deploy | `deployer` | Canary deployment → health verification → progressive rollout |
 
-## 开发约定
+## Design Documents
 
-- **严格 TypeScript**: `strict: true`, 禁用 `any` 和 `@ts-ignore`
-- **DDD 战术模式**: 每个 BC 使用 Entity / ValueObject / AggregateRoot
-- **TDD**: 无失败测试不写生产代码
-- **Conventional Commits**: `feat(bc-pm):`, `fix(core):`, `docs:`
-- **Result<T, E>**: 领域操作用 Either monad, 不抛异常
+| Document | Description |
+|----------|-------------|
+| [DESIGN_v2.md](docs/DESIGN_v2.md) | v2 architecture — SDD+TDD pipeline (current target) |
+| [MODULE_PLAN_v2.md](docs/MODULE_PLAN_v2.md) | v2 migration plan with TODO checklist |
+| [DESIGN.md](docs/DESIGN.md) | v1 architecture — DDD microservices (legacy reference) |
+| [MODULE_PLAN.md](docs/MODULE_PLAN.md) | v1 module completion plan (legacy reference) |
+
+## Conventions
+
+- **Strict TypeScript** — `strict: true`, no `any`, no `@ts-ignore`
+- **TDD** — RED (failing test) → GREEN (minimal code) → REFACTOR (clean code)
+- **DDD Tactical Patterns** — Entity, ValueObject, AggregateRoot, Result<T,E> monad
+- **Conventional Commits** — `feat(scope):`, `fix(scope):`, `refactor(scope):`, `chore(scope):`
