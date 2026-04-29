@@ -1,8 +1,13 @@
 import { z } from 'zod';
-import { BaseEventFields } from './project-events.js';
+
+const BaseSecurityFields = {
+  eventId: z.string().uuid(),
+  occurredAt: z.string().datetime(),
+  pipelineId: z.string().uuid(),
+};
 
 export const SecretDetectedSchema = z.object({
-  ...BaseEventFields,
+  ...BaseSecurityFields,
   eventType: z.literal('security.secret.detected'),
   filePath: z.string(),
   line: z.number().int().positive(),
@@ -11,7 +16,7 @@ export const SecretDetectedSchema = z.object({
 });
 
 export const PolicyViolationSchema = z.object({
-  ...BaseEventFields,
+  ...BaseSecurityFields,
   eventType: z.literal('security.policy.violation'),
   policyName: z.string(),
   severity: z.enum(['critical', 'high', 'medium', 'low']),

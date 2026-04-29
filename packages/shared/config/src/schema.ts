@@ -1,28 +1,11 @@
 import { z } from 'zod';
 
-export const DatabaseConfigSchema = z.object({
-  host: z.string().default('localhost'),
-  port: z.coerce.number().int().default(5432),
-  database: z.string().default('ulw'),
-  user: z.string().default('postgres'),
-  password: z.string().default('postgres'),
-  maxConnections: z.coerce.number().int().default(20),
-  ssl: z.boolean().default(false),
-});
-
 export const RedisConfigSchema = z.object({
   host: z.string().default('localhost'),
   port: z.coerce.number().int().default(6379),
   password: z.string().optional(),
   db: z.coerce.number().int().default(0),
   keyPrefix: z.string().default('ulw:'),
-});
-
-export const NATSConfigSchema = z.object({
-  servers: z.string().default('nats://localhost:4222'),
-  streamName: z.string().default('ulw-events'),
-  maxReconnectAttempts: z.coerce.number().int().default(10),
-  reconnectWaitMs: z.coerce.number().int().default(2000),
 });
 
 export const MinioConfigSchema = z.object({
@@ -63,12 +46,20 @@ export const PipelineConfigSchema = z.object({
   canaryEnabled: z.boolean().default(false),
   canaryDurationSeconds: z.coerce.number().int().default(600),
   maxParallelStages: z.coerce.number().int().default(3),
+  stages: z
+    .object({
+      specParsing: z.object({ timeoutSeconds: z.number().int().default(300) }).default({}),
+      architectureDesign: z.object({ timeoutSeconds: z.number().int().default(600) }).default({}),
+      tddCodeGen: z.object({ timeoutSeconds: z.number().int().default(1800) }).default({}),
+      codeReview: z.object({ timeoutSeconds: z.number().int().default(900) }).default({}),
+      automatedTesting: z.object({ timeoutSeconds: z.number().int().default(1200) }).default({}),
+      deployment: z.object({ timeoutSeconds: z.number().int().default(1800) }).default({}),
+    })
+    .default({}),
 });
 
 export const AppConfigSchema = z.object({
-  database: DatabaseConfigSchema,
   redis: RedisConfigSchema,
-  nats: NATSConfigSchema,
   minio: MinioConfigSchema,
   keycloak: KeycloakConfigSchema,
   agents: AgentsConfigSchema,
@@ -77,9 +68,7 @@ export const AppConfigSchema = z.object({
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
-export type DatabaseConfig = z.infer<typeof DatabaseConfigSchema>;
 export type RedisConfig = z.infer<typeof RedisConfigSchema>;
-export type NATSConfig = z.infer<typeof NATSConfigSchema>;
 export type MinioConfig = z.infer<typeof MinioConfigSchema>;
 export type KeycloakConfig = z.infer<typeof KeycloakConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;

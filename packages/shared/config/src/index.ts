@@ -1,8 +1,6 @@
 export {
   AppConfigSchema,
-  DatabaseConfigSchema,
   RedisConfigSchema,
-  NATSConfigSchema,
   MinioConfigSchema,
   KeycloakConfigSchema,
   AgentsConfigSchema,
@@ -11,9 +9,7 @@ export {
 } from './schema.js';
 export type {
   AppConfig,
-  DatabaseConfig,
   RedisConfig,
-  NATSConfig,
   MinioConfig,
   KeycloakConfig,
   AgentsConfig,

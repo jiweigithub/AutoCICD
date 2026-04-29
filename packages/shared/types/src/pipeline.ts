@@ -1,46 +1,37 @@
-export interface PipelineStage {
-  stageId: string;
+import type { Finding } from './review.js';
+
+export enum PipelineStage {
+  SPEC_PARSING = 'SPEC_PARSING',
+  ARCHITECTURE_DESIGN = 'ARCHITECTURE_DESIGN',
+  TDD_CODE_GEN = 'TDD_CODE_GEN',
+  CODE_REVIEW = 'CODE_REVIEW',
+  AUTOMATED_TESTING = 'AUTOMATED_TESTING',
+  DEPLOYMENT = 'DEPLOYMENT',
+}
+
+export type PipelineRunStatus = 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'ABANDONED';
+
+export type StageStatus = 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'SKIPPED';
+
+export interface PipelineRun {
   pipelineId: string;
-  name: string;
-  stageType: StageType;
-  order: number;
-  config: Record<string, unknown>;
-  dependsOn: string[];
+  specRef: { repo: string; commitSHA: string; filePath: string };
+  status: PipelineRunStatus;
+  currentStage: PipelineStage;
+  stages: Record<PipelineStage, StageResult>;
+  startedAt: string;
+  completedAt: string | null;
+  retryCount: number;
+  triggeredBy: string;
 }
 
-export enum StageType {
-  Build = 'build',
-  Test = 'test',
-  Lint = 'lint',
-  Scan = 'scan',
-  Package = 'package',
-  Deploy = 'deploy',
-  Verify = 'verify',
-  Notify = 'notify',
-}
-
-export interface ApprovalGate {
-  gateId: string;
-  stageId: string;
-  requiredApprovers: string[];
-  approvedBy: string[];
-  status: ApprovalGateStatus;
-  requestedAt: Date;
-  resolvedAt: Date | null;
-}
-
-export enum ApprovalGateStatus {
-  Pending = 'pending',
-  Approved = 'approved',
-  Rejected = 'rejected',
-  Expired = 'expired',
-}
-
-export interface CanaryRule {
-  ruleId: string;
-  metric: string;
-  threshold: number;
-  operator: 'lt' | 'lte' | 'gt' | 'gte' | 'eq';
-  durationSeconds: number;
-  enabled: boolean;
+export interface StageResult {
+  stage: PipelineStage;
+  status: StageStatus;
+  startedAt: string;
+  completedAt: string | null;
+  artifactKeys: string[];
+  findings?: Finding[];
+  errorMessage: string | null;
+  retryCount: number;
 }

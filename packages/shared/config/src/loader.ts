@@ -35,26 +35,27 @@ export class ConfigLoader {
       return JSON.parse(raw) as Record<string, unknown>;
     }
     if (path.endsWith('.yaml') || path.endsWith('.yml')) {
-      throw new Error('YAML config loading requires "yaml" package. Install: pnpm add yaml');
+      return this.parseYaml(raw);
     }
     throw new Error(`Unsupported config file format: ${path}`);
+  }
+
+  private parseYaml(raw: string): Record<string, unknown> {
+    try {
+      const yaml = require('yaml');
+      return yaml.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new Error('YAML config loading requires "yaml" package. Install: pnpm add yaml');
+    }
   }
 
   private loadFromEnv(): Record<string, unknown> {
     const result: Record<string, unknown> = {};
 
     const envMap: Record<string, string> = {
-      DB_HOST: 'database.host',
-      DB_PORT: 'database.port',
-      DB_NAME: 'database.database',
-      DB_USER: 'database.user',
-      DB_PASSWORD: 'database.password',
-      DB_MAX_CONNECTIONS: 'database.maxConnections',
       REDIS_HOST: 'redis.host',
       REDIS_PORT: 'redis.port',
       REDIS_PASSWORD: 'redis.password',
-      NATS_SERVERS: 'nats.servers',
-      NATS_STREAM: 'nats.streamName',
       MINIO_ENDPOINT: 'minio.endpoint',
       MINIO_BUCKET: 'minio.bucket',
       MINIO_ACCESS_KEY: 'minio.accessKey',

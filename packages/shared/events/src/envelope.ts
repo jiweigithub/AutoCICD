@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { MessageEnvelope, MessageMetadata } from '@ulw/shared-types';
 
 export const MessageMetadataSchema = z.object({
   correlationId: z.string(),
@@ -17,16 +16,20 @@ export const MessageEnvelopeSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
     eventType: z.string(),
     data: dataSchema,
     metadata: MessageMetadataSchema,
-    timestamp: z.date(),
+    timestamp: z.string().datetime(),
   });
 
-export function createEnvelope<T>(data: T, subject: string, metadata: MessageMetadata): MessageEnvelope<T> {
+export function createEnvelope<T>(
+  data: T,
+  subject: string,
+  metadata: z.infer<typeof MessageMetadataSchema>,
+): { envelopeId: string; subject: string; eventType: string; data: T; metadata: z.infer<typeof MessageMetadataSchema>; timestamp: string } {
   return {
     envelopeId: crypto.randomUUID(),
     subject,
     eventType: subject,
     data,
     metadata,
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
   };
 }

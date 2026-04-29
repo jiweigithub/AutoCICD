@@ -1,27 +1,12 @@
 import type { AppConfig } from './schema.js';
 
 export const devDefaults: AppConfig = {
-  database: {
-    host: 'localhost',
-    port: 5432,
-    database: 'ulw',
-    user: 'postgres',
-    password: 'postgres',
-    maxConnections: 20,
-    ssl: false,
-  },
   redis: {
     host: 'localhost',
     port: 6379,
     password: undefined,
     db: 0,
     keyPrefix: 'ulw:',
-  },
-  nats: {
-    servers: 'nats://localhost:4222',
-    streamName: 'ulw-events',
-    maxReconnectAttempts: 10,
-    reconnectWaitMs: 2000,
   },
   minio: {
     endpoint: 'http://localhost:9000',
@@ -57,5 +42,13 @@ export const devDefaults: AppConfig = {
     canaryEnabled: false,
     canaryDurationSeconds: 600,
     maxParallelStages: 3,
+    stages: {
+      specParsing: { timeoutSeconds: 300 },
+      architectureDesign: { timeoutSeconds: 600 },
+      tddCodeGen: { timeoutSeconds: 1800 },
+      codeReview: { timeoutSeconds: 900 },
+      automatedTesting: { timeoutSeconds: 1200 },
+      deployment: { timeoutSeconds: 1800 },
+    },
   },
 };
