@@ -2,7 +2,7 @@
 
 > **Version**: v2.0
 > **Date**: 2026-04-30
-> **Status**: Planning Phase
+> **Status**: In Progress — Phase 0 complete, Phase 1 complete, Phase 2 pending
 > **Based on**: [DESIGN_v2.md](./DESIGN_v2.md), current v1 monorepo state
 > **Migration**: DDD microservices → SDD+TDD pipeline
 > **Net file delta**: delete ~210 files, keep ~100 files, create ~15 files
@@ -1102,30 +1102,30 @@ Items organized by phase. Format: `- [ ] [priority][effort] <file-path> — <des
 
 ### Phase 1: Refactor Shared (P0)
 
-- [ ] [P0][S] Update `packages/shared/types/src/events.ts` — remove NATS subject constants, add pipeline event type aliases
-- [ ] [P0][S] Update `packages/shared/types/src/pipeline.ts` — replace old pipeline types with PipelineStage enum, PipelineRun, StageResult
-- [ ] [P0][S] Update `packages/shared/types/src/agent.ts` — update AgentType enum for 7 v2 pipeline agents
-- [ ] [P0][S] Update `packages/shared/types/src/index.ts` — update barrel exports for v2 types
-- [ ] [P0][S] Remove `packages/shared/types/src/workflow.ts` — old workflow types not needed in v2
-- [ ] [P0][M] Rewrite `packages/shared/events/src/schemas/project-events.ts` → `pipeline-events.ts` — StageStartedEvent + StageCompletedEvent
-- [ ] [P0][M] Rewrite `packages/shared/events/src/schemas/architecture-events.ts` → `pipeline-lifecycle.ts` — PipelineStartedEvent + PipelineFailedEvent + PipelineCompletedEvent
-- [ ] [P0][S] Rewrite `packages/shared/events/src/schemas/code-events.ts` → `approval-events.ts` — UserApprovalRequested + UserApprovalReceived
-- [ ] [P0][S] Keep `packages/shared/events/src/schemas/security-events.ts` — SecretDetected and PolicyViolation still used by security-auditor
-- [ ] [P0][S] Remove `packages/shared/events/src/schemas/review-events.ts` — review events now part of pipeline lifecycle
-- [ ] [P0][S] Remove `packages/shared/events/src/schemas/testing-events.ts` — test events now part of pipeline lifecycle
-- [ ] [P0][S] Remove `packages/shared/events/src/schemas/deployment-events.ts` — deployment events now part of pipeline lifecycle
-- [ ] [P0][S] Remove `packages/shared/events/src/subject-registry.ts` — no NATS subjects in v2
-- [ ] [P0][S] Update `packages/shared/events/src/index.ts` — barrel exports for new event schemas
-- [ ] [P0][S] Update `packages/shared/config/src/loader.ts` — add YAML loading for openclaw.config.yml
-- [ ] [P0][S] Update `packages/shared/config/src/schema.ts` — simplify for single-file config, remove multi-source merge
-- [ ] [P0][XS] Update `packages/shared/config/src/defaults.ts` — add v2 pipeline default values
-- [ ] [P0][XS] Update `pnpm-workspace.yaml` — remove `packages/bc/*`, `packages/core/*`, `apps/*`; add `packages/pipeline/*`
-- [ ] [P0][XS] Update `pnpm-workspace.yaml` catalog — remove NestJS, tRPC, Drizzle, NATS, Passport dependencies
-- [ ] [P0][XS] Update `vitest.workspace.ts` — remove BC/core/app workspace references, keep shared/acl/pipeline
-- [ ] [P0][XS] Update root `package.json` — remove `"dev"` script, remove v1 devDependencies
-- [ ] [P0][XS] Run `pnpm typecheck` — must pass with no BC/core/app imports
-- [ ] [P0][XS] Run `pnpm lint` — must pass
-- [ ] [P0][XS] Run `pnpm test` — existing shared tests must still pass
+- [x] [P0][S] Update `packages/shared/types/src/events.ts` — remove NATS subject constants, add pipeline event type aliases
+- [x] [P0][S] Update `packages/shared/types/src/pipeline.ts` — replace old pipeline types with PipelineStage enum, PipelineRun, StageResult
+- [x] [P0][S] Update `packages/shared/types/src/agent.ts` — update AgentType enum for 7 v2 pipeline agents
+- [x] [P0][S] Update `packages/shared/types/src/index.ts` — update barrel exports for v2 types
+- [x] [P0][S] Remove `packages/shared/types/src/workflow.ts` — old workflow types not needed in v2
+- [x] [P0][M] Rewrite `packages/shared/events/src/schemas/project-events.ts` → `pipeline-events.ts` — StageStartedEvent + StageCompletedEvent
+- [x] [P0][M] Rewrite `packages/shared/events/src/schemas/architecture-events.ts` → `pipeline-lifecycle.ts` — PipelineStartedEvent + PipelineFailedEvent + PipelineCompletedEvent
+- [x] [P0][S] Rewrite `packages/shared/events/src/schemas/code-events.ts` → `approval-events.ts` — UserApprovalRequested + UserApprovalReceived
+- [x] [P0][S] Keep `packages/shared/events/src/schemas/security-events.ts` — SecretDetected and PolicyViolation still used by security-auditor
+- [x] [P0][S] Remove `packages/shared/events/src/schemas/review-events.ts` — review events now part of pipeline lifecycle
+- [x] [P0][S] Remove `packages/shared/events/src/schemas/testing-events.ts` — test events now part of pipeline lifecycle
+- [x] [P0][S] Remove `packages/shared/events/src/schemas/deployment-events.ts` — deployment events now part of pipeline lifecycle
+- [x] [P0][S] Remove `packages/shared/events/src/subject-registry.ts` — no NATS subjects in v2
+- [x] [P0][S] Update `packages/shared/events/src/index.ts` — barrel exports for new event schemas
+- [x] [P0][S] Update `packages/shared/config/src/loader.ts` — add YAML loading for openclaw.config.yml
+- [x] [P0][S] Update `packages/shared/config/src/schema.ts` — simplify for single-file config, remove multi-source merge
+- [x] [P0][XS] Update `packages/shared/config/src/defaults.ts` — add v2 pipeline default values
+- [x] [P0][XS] Update `pnpm-workspace.yaml` — remove `packages/bc/*`, `packages/core/*`, `apps/*`; add `packages/pipeline/*`
+- [x] [P0][XS] Update `pnpm-workspace.yaml` catalog — remove NestJS, tRPC, Drizzle, NATS, Passport dependencies
+- [x] [P0][XS] Update `vitest.workspace.ts` — remove BC/core/app workspace references, keep shared/acl/pipeline
+- [x] [P0][XS] Update root `package.json` — remove `"dev"` script, remove v1 devDependencies
+- [x] [P0][XS] Run `pnpm typecheck` — must pass with no BC/core/app imports
+- [x] [P0][XS] Run `pnpm lint` — must pass
+- [x] [P0][XS] Run `pnpm test` — existing shared tests must still pass
 
 ### Phase 2: Delete Old (P0)
 
@@ -1497,5 +1497,5 @@ find infrastructure/ -name "*.ts" -not -path "*/node_modules/*" | wc -l
 ---
 
 > **Document Status**: Planning v2.0 — 2026-04-30
-> **Next Steps**: Stakeholder review → Phase 0 execution (pipeline package creation) → Phase 1 (shared refactor) → Phase 2 (deletion) → Phase 3 (ACL) → Phase 4 (agents) → Phase 5 (infra)
+> **Next Steps**: Phase 2 (delete BCs + Core + API Gateway) → Phase 3 (ACL) → Phase 4 (agents) → Phase 5 (infra)
 > **Based on**: DESIGN_v2.md (2035 lines), current v1 monorepo state (verified via `find packages/ apps/ -type f`)
