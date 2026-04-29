@@ -1087,20 +1087,20 @@ main
 
 ### 阶段 0：新建（P0）
 
-- [ ] [P0][S] 创建 `packages/pipeline/package.json` — npm 包元数据，包名为 `@ulw/pipeline`
-- [ ] [P0][S] 创建 `packages/pipeline/tsconfig.json` — 继承 tsconfig.base.json
-- [ ] [P0][S] 创建 `packages/pipeline/vitest.config.ts` — 带覆盖率提供者的 Vitest 配置
-- [ ] [P0][M] 创建 `packages/pipeline/src/state-model.ts` — PipelineStage 枚举、PipelineRun、StageResult 类型
-- [ ] [P0][M] 创建 `packages/pipeline/src/stage-executor.ts` — 阶段推进/重试/失败分发函数
-- [ ] [P0][S] 创建 `packages/pipeline/src/pipeline.ts` — createPipelineRun()、getNextStage()、validateStageTransition()
-- [ ] [P0][S] 创建 `packages/pipeline/src/index.ts` — 所有公开类型的桶导出
-- [ ] [P0][S] 创建 `packages/pipeline/tests/state-model.test.ts` — 测试 PipelineStage 枚举值和类型守卫
-- [ ] [P0][S] 创建 `packages/pipeline/tests/stage-executor.test.ts` — 测试阶段分发和重试逻辑
-- [ ] [P0][M] 创建 `skills/spec-parser/SKILL.md` — 带 Zod 验证的 Markdown 规范解析技能
-- [ ] [P0][M] 创建 `skills/pipeline-orchestrator/SKILL.md` — 带阶段分发的流水线编排技能
-- [ ] [P0][M] 创建 `openclaw.config.yml` — 基于 DESIGN_v2.md 第 9.2 节模板的完整配置
-- [ ] [P0][XS] 运行 `pnpm --filter @ulw/pipeline typecheck` — 验证流水线类型编译通过
-- [ ] [P0][XS] 运行 `pnpm --filter @ulw/pipeline test` — 验证流水线测试通过
+- [x] [P0][S] 创建 `packages/pipeline/package.json` — npm 包元数据，包名为 `@ulw/pipeline`
+- [x] [P0][S] 创建 `packages/pipeline/tsconfig.json` — 继承 tsconfig.base.json
+- [x] [P0][S] 创建 `packages/pipeline/vitest.config.ts` — 带覆盖率提供者的 Vitest 配置
+- [x] [P0][M] 创建 `packages/pipeline/src/state-model.ts` — PipelineStage 枚举、PipelineRun、StageResult 类型
+- [x] [P0][M] 创建 `packages/pipeline/src/stage-executor.ts` — 阶段推进/重试/失败分发函数
+- [x] [P0][S] 创建 `packages/pipeline/src/pipeline.ts` — createPipelineRun()、getNextStage()、validateStageTransition()
+- [x] [P0][S] 创建 `packages/pipeline/src/index.ts` — 所有公开类型的桶导出
+- [x] [P0][S] 创建 `packages/pipeline/tests/state-model.test.ts` — 测试 PipelineStage 枚举值和类型守卫
+- [x] [P0][S] 创建 `packages/pipeline/tests/stage-executor.test.ts` — 测试阶段分发和重试逻辑
+- [x] [P0][M] 创建 `skills/spec-parser/SKILL.md` — 带 Zod 验证的 Markdown 规范解析技能
+- [x] [P0][M] 创建 `skills/pipeline-orchestrator/SKILL.md` — 带阶段分发的流水线编排技能
+- [x] [P0][M] 创建 `openclaw.config.yml` — 基于 DESIGN_v2.md 第 9.2 节模板的完整配置
+- [x] [P0][XS] 运行 `pnpm --filter @ulw/pipeline typecheck` — 验证流水线类型编译通过
+- [x] [P0][XS] 运行 `pnpm --filter @ulw/pipeline test` — 验证流水线测试通过
 
 ### 阶段 1：重构共享（P0）
 

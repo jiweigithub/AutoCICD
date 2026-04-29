@@ -1085,20 +1085,20 @@ Items organized by phase. Format: `- [ ] [priority][effort] <file-path> — <des
 
 ### Phase 0: Create New (P0)
 
-- [ ] [P0][S] Create `packages/pipeline/package.json` — npm package metadata with `@ulw/pipeline` name
-- [ ] [P0][S] Create `packages/pipeline/tsconfig.json` — extends tsconfig.base.json
-- [ ] [P0][S] Create `packages/pipeline/vitest.config.ts` — Vitest config with coverage provider
-- [ ] [P0][M] Create `packages/pipeline/src/state-model.ts` — PipelineStage enum, PipelineRun, StageResult types
-- [ ] [P0][M] Create `packages/pipeline/src/stage-executor.ts` — stage advance/retry/fail dispatch functions
-- [ ] [P0][S] Create `packages/pipeline/src/pipeline.ts` — createPipelineRun(), getNextStage(), validateStageTransition()
-- [ ] [P0][S] Create `packages/pipeline/src/index.ts` — barrel export of all public types
-- [ ] [P0][S] Create `packages/pipeline/tests/state-model.test.ts` — test PipelineStage enum values and type guards
-- [ ] [P0][S] Create `packages/pipeline/tests/stage-executor.test.ts` — test stage dispatch and retry logic
-- [ ] [P0][M] Create `skills/spec-parser/SKILL.md` — Markdown spec parsing skill with Zod validation
-- [ ] [P0][M] Create `skills/pipeline-orchestrator/SKILL.md` — pipeline orchestration skill with stage dispatch
-- [ ] [P0][M] Create `openclaw.config.yml` — full configuration from DESIGN_v2.md Section 9.2 template
-- [ ] [P0][XS] Run `pnpm --filter @ulw/pipeline typecheck` — verify pipeline types compile
-- [ ] [P0][XS] Run `pnpm --filter @ulw/pipeline test` — verify pipeline tests pass
+- [x] [P0][S] Create `packages/pipeline/package.json` — npm package metadata with `@ulw/pipeline` name
+- [x] [P0][S] Create `packages/pipeline/tsconfig.json` — extends tsconfig.base.json
+- [x] [P0][S] Create `packages/pipeline/vitest.config.ts` — Vitest config with coverage provider
+- [x] [P0][M] Create `packages/pipeline/src/state-model.ts` — PipelineStage enum, PipelineRun, StageResult types
+- [x] [P0][M] Create `packages/pipeline/src/stage-executor.ts` — stage advance/retry/fail dispatch functions
+- [x] [P0][S] Create `packages/pipeline/src/pipeline.ts` — createPipelineRun(), getNextStage(), validateStageTransition()
+- [x] [P0][S] Create `packages/pipeline/src/index.ts` — barrel export of all public types
+- [x] [P0][S] Create `packages/pipeline/tests/state-model.test.ts` — test PipelineStage enum values and type guards
+- [x] [P0][S] Create `packages/pipeline/tests/stage-executor.test.ts` — test stage dispatch and retry logic
+- [x] [P0][M] Create `skills/spec-parser/SKILL.md` — Markdown spec parsing skill with Zod validation
+- [x] [P0][M] Create `skills/pipeline-orchestrator/SKILL.md` — pipeline orchestration skill with stage dispatch
+- [x] [P0][M] Create `openclaw.config.yml` — full configuration from DESIGN_v2.md Section 9.2 template
+- [x] [P0][XS] Run `pnpm --filter @ulw/pipeline typecheck` — verify pipeline types compile
+- [x] [P0][XS] Run `pnpm --filter @ulw/pipeline test` — verify pipeline tests pass
 
 ### Phase 1: Refactor Shared (P0)
 
