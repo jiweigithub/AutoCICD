@@ -1,0 +1,211 @@
+# ulw Platform — OpenClaw Configuration v2.0
+
+# ─── Server ───────────────────────────────────────────────────────
+server:
+  host: "0.0.0.0"
+  port: 18789
+  tls:
+    enabled: false
+
+# ─── Webhooks ─────────────────────────────────────────────────────
+webhooks:
+  github:
+    enabled: true
+    secret: "${GITHUB_WEBHOOK_SECRET}"
+    events: [pull_request, push]
+  gitlab:
+    enabled: false
+  manual:
+    enabled: true
+
+# ─── Pipeline ─────────────────────────────────────────────────────
+pipeline:
+  stages:
+    spec-parsing:
+      timeout: 300
+      retry:
+        max: 3
+        backoff: exponential
+        initialDelay: 1
+      skill: spec-parser
+    architecture-design:
+      timeout: 600
+      retry:
+        max: 3
+        backoff: exponential
+        initialDelay: 2
+    tdd-code-gen:
+      timeout: 1800
+      retry:
+        max: 3
+        backoff: exponential
+        initialDelay: 5
+      runtime: opencode
+      isolation: git-worktree
+      tdd-enforcement: strict
+    code-review:
+      timeout: 600
+      retry:
+        max: 3
+        backoff: exponential
+        initialDelay: 2
+      agents: [analyzer, code-quality, security, architecture, critic, policy]
+      severity-thresholds:
+        critical: block
+        high: block
+        medium: warn
+        low: info
+    automated-testing:
+      timeout: 1200
+      retry:
+        max: 2
+        backoff: exponential
+        initialDelay: 5
+      coverage-thresholds:
+        lines: 80
+        branches: 90
+      contract-testing:
+        enabled: true
+        tool: pact
+    deployment:
+      timeout: 900
+      retry:
+        max: 2
+        backoff: exponential
+        initialDelay: 10
+      strategy: canary
+      canary-phases: [10, 25, 50, 100]
+      auto-rollback:
+        enabled: true
+        metric: error-rate
+        threshold: 5
+      approval:
+        required: true
+        timeout: 1800
+  global:
+    artifact-prefix: "pipeline"
+    max-concurrent-pipelines: 5
+    cleanup-ttl-hours: 720
+
+# ─── Agent Identities ─────────────────────────────────────────────
+agents:
+  - id: pipeline-orchestrator
+    identity: agents/pipeline-orchestrator/
+    role: orchestrator
+    skills: [pipeline-orchestrator]
+    tools: [read, write, bash, task]
+  - id: spec-parser
+    identity: agents/spec-parser/
+    role: stage-agent
+    skills: [spec-parser]
+    tools: [read, write, bash]
+  - id: architect
+    identity: agents/ad-steward/
+    role: stage-agent
+    skills: [architecture-design]
+    tools: [read, write, bash]
+  - id: tdd-coder
+    identity: agents/cg-steward/
+    role: stage-agent
+    skills: [tdd]
+    runtime: opencode
+    tools: [read, write, edit, bash]
+  - id: reviewer
+    identity: agents/code-reviewer/
+    role: stage-agent
+    skills: [code-review, security-audit, contract-validation]
+    tools: [read, bash, lsp_diagnostics]
+  - id: tester
+    identity: agents/tdd-test-agent/
+    role: stage-agent
+    skills: [test-generation, contract-validation]
+    tools: [read, bash]
+  - id: deployer
+    identity: agents/deploy-agent/
+    role: stage-agent
+    skills: [deployment]
+    tools: [read, bash]
+
+# ─── Skills ───────────────────────────────────────────────────────
+skills:
+  - name: spec-parser
+    path: skills/spec-parser/SKILL.md
+  - name: pipeline-orchestrator
+    path: skills/pipeline-orchestrator/SKILL.md
+  - name: tdd
+    path: skills/tdd/SKILL.md
+  - name: code-review
+    path: skills/code-review/SKILL.md
+  - name: security-audit
+    path: skills/security-audit/SKILL.md
+  - name: contract-validation
+    path: skills/contract-validation/SKILL.md
+  - name: test-generation
+    path: skills/test-generation/SKILL.md
+  - name: deployment
+    path: skills/deployment/SKILL.md
+
+# ─── Storage ──────────────────────────────────────────────────────
+storage:
+  minio:
+    endpoint: "${MINIO_ENDPOINT}"
+    accessKey: "${MINIO_ACCESS_KEY}"
+    secretKey: "${MINIO_SECRET_KEY}"
+    bucket: "ulw-pipeline"
+    useSSL: false
+
+# ─── Cache ────────────────────────────────────────────────────────
+cache:
+  redis:
+    host: "${REDIS_HOST}"
+    port: 6379
+    password: "${REDIS_PASSWORD}"
+
+# ─── Auth ─────────────────────────────────────────────────────────
+auth:
+  keycloak:
+    realm: "ulw"
+    authServerUrl: "${KEYCLOAK_URL}"
+    clientId: "ulw-pipeline"
+    clientSecret: "${KEYCLOAK_CLIENT_SECRET}"
+  roles:
+    - admin
+    - tech-lead
+    - developer
+    - viewer
+
+# ─── Cron Jobs ────────────────────────────────────────────────────
+cron:
+  - name: nightly-security-scan
+    schedule: "0 3 * * *"
+    skill: security-audit
+  - name: dependency-audit
+    schedule: "0 4 * * 1"
+    skill: security-audit
+  - name: pipeline-cleanup
+    schedule: "0 2 * * *"
+    action: cleanup-expired-pipelines
+
+# ─── Notifications ────────────────────────────────────────────────
+notifications:
+  slack:
+    enabled: false
+    webhookUrl: "${SLACK_WEBHOOK_URL}"
+  github:
+    enabled: true
+    statusChecks: true
+    prComments: true
+  email:
+    enabled: false
+
+# ─── Observability ────────────────────────────────────────────────
+observability:
+  opentelemetry:
+    enabled: true
+    endpoint: "${OTEL_EXPORTER_ENDPOINT}"
+  prometheus:
+    enabled: true
+    port: 9090
+  logging:
+    level: info
+    format: json
