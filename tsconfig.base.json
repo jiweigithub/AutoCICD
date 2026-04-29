@@ -23,7 +23,8 @@
       "@ulw/shared-types": ["./packages/shared/types/src"],
       "@ulw/shared-domain": ["./packages/shared/domain/src"],
       "@ulw/shared-events": ["./packages/shared/events/src"],
-      "@ulw/shared-config": ["./packages/shared/config/src"]
+      "@ulw/shared-config": ["./packages/shared/config/src"],
+      "@ulw/pipeline": ["./packages/pipeline/src"]
     }
   },
   "exclude": ["node_modules", "dist", "coverage", "tmp", ".pnpm-store"]

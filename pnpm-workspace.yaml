@@ -3,6 +3,7 @@ packages:
   - "packages/bc/*"
   - "packages/core/*"
   - "packages/acl/*"
+  - "packages/pipeline"
   - "apps/*"
 
 catalog:
