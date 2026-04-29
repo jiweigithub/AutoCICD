@@ -792,3 +792,215 @@ Phase 5: Testing & Polish (Week 7-8)
 **Team sizing**: 4 developers. Parallel work possible on Phase 2 (one dev per BC, 6 BCs → staggered).
 
 **Definition of MVP Done**: A StoryCreated event in PM triggers the full pipeline: AD generates architecture spec → CG generates code with TDD guardrails → CR reviews and passes → TA runs tests and passes → DP deploys to canary → human approves → production. All events flow via NATS. All states persisted in PostgreSQL.
+
+---
+
+## TODO List
+
+*Legend: [P0]=Blocking, [P1]=Core, [P2]=Enhancement, [XS]=&lt;0.5d, [S]=0.5-1d, [M]=1-3d, [L]=4-6d, [XL]=7+d*
+
+### Phase 0 — Foundation (Week 1) ⬜
+
+#### 0.1 Cross-BC Structural Fixes (Must Complete First)
+- [ ] B0.1 [P0][M] 补充 8 个缺失的 NATS 事件接口类 — `packages/bc/{ad,cg,cr,ta,dp}/src/domain/events/index.ts`
+  - [ ] AD: `ArchitectureProposedEvent`
+  - [ ] CG: `GenerationStartedEvent`, `GenerationFailedEvent`
+  - [ ] CR: `ReviewStartedEvent`, `CheckCompletedEvent`
+  - [ ] TA: `TestRunStartedEvent`
+  - [ ] DP: `ReleaseCreatedEvent`, `StageCompletedEvent`
+- [ ] B0.2 [P0][XS] 修复 TA bug: `TestPassedEvent` / `TestFailedEvent` 使用不同 NATS 主题 — `packages/bc/ta/src/domain/events/index.ts`, `packages/shared/types/src/events.ts`
+- [ ] B0.5 [P0][S] 为全部 6 个 BC 生成 Drizzle 初始迁移文件 — `packages/bc/{pm,ad,cg,cr,ta,dp}/drizzle/`
+- [ ] A1.1 [P0][XS] 去重 NATS 主题常量 — `packages/shared/types/src/events.ts` → 从 `@ulw/shared-events` 重新导出
+
+#### 0.2 Shared Domain Tests
+- [ ] A2.1 [P0][S] `Result<T,E>` 单元测试 (ok/err/isOk/isErr/map/flatMap/match/unwrap) — `packages/shared/domain/src/result.test.ts`
+- [ ] A2.2 [P0][S] `ValueObject` 单元测试 (equality, hashCode) — `packages/shared/domain/src/value-object.test.ts`
+- [ ] A2.3 [P0][S] `Entity` 单元测试 (identity equality, domain event collection) — `packages/shared/domain/src/entity.test.ts`
+- [ ] A2.4 [P0][S] `AggregateRoot` 单元测试 (pullEvents transactional semantics) — `packages/shared/domain/src/aggregate-root.test.ts`
+- [ ] A2.5 [P0][XS] 5 个 DomainError 类型单元测试 — `packages/shared/domain/src/errors.test.ts`
+- [ ] A2.6 [P0][XS] `Identifier<T>` 单元测试 — `packages/shared/domain/src/identifier.test.ts`
+
+#### 0.3 Shared Events Tests
+- [ ] A3.1 [P0][S] PM 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/project-events.test.ts`
+- [ ] A3.2 [P0][S] AD 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/architecture-events.test.ts`
+- [ ] A3.3 [P0][S] CG 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/code-events.test.ts`
+- [ ] A3.4 [P0][S] CR 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/review-events.test.ts`
+- [ ] A3.5 [P0][S] TA 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/testing-events.test.ts`
+- [ ] A3.6 [P0][S] DP 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/deployment-events.test.ts`
+- [ ] A3.7 [P0][XS] Security 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/security-events.test.ts`
+- [ ] A3.8 [P0][S] `MessageEnvelopeSchema` + `createEnvelope()` 测试 — `packages/shared/events/src/envelope.test.ts`
+
+#### 0.4 Shared Config Tests
+- [ ] A4.1 [P0][M] `ConfigLoader` 单元测试 (env var mapping, JSON 加载, deep merge) — `packages/shared/config/src/loader.test.ts`
+- [ ] A4.2 [P0][M] `validateConfig()` 单元测试 (8 个子 schema, 边界情况) — `packages/shared/config/src/validator.test.ts`
+
+#### 0.5 Quality Gates
+- [ ] H4.1 [P1][S] 添加 pre-commit hooks (husky + lint-staged: eslint, oxlint, prettier) — `.husky/pre-commit`, `.lintstagedrc.json`
+- [ ] H4.2 [P1][S] 添加 commitlint (Conventional Commits 强制) — `commitlint.config.js`
+- [ ] H1.9 [P0][S] 为所有包配置 Vitest coverage — `packages/*/vitest.config.ts`, `apps/*/vitest.config.ts`
+
+---
+
+### Phase 1 — Core Engine Enablement (Week 2-3) ⬜
+
+#### 1.1 NATS Integration
+- [ ] C2.1 [P0][M] 实现 `NATSPublisher.publish()` — 真实 NATS 连接, 发布到 JetStream — `packages/core/supervisor/src/messaging/nats-publisher.ts`
+- [ ] C2.2 [P0][M] 实现 `NATSConsumer.subscribeToStatusEvents()` — 订阅 agent heartbeat 和 task result 主题 — `packages/core/supervisor/src/messaging/nats-consumer.ts`
+
+#### 1.2 DAG Executor
+- [ ] C2.3 [P0][L] 实现 `DAGExecutor.executeDAG()` — 遍历 executionOrder, 检查依赖, 通过 NATS 分发 spec, 收集结果 — `packages/core/supervisor/src/executor/dag-executor.ts`
+- [ ] C2.4 [P1][M] 实现 `DAGExecutor.executeParallel()` — 同 wave 内 spec 并行分发 — 同上
+- [ ] C2.7 [P0][M] 连接 `SupervisorService.executeDAG()` — NATS + DAGExecutor + HeartbeatMonitor + RetryManager — `packages/core/supervisor/src/supervisor.service.ts`
+- [ ] C2.8 [P0][XS] 为 supervisor state tables 生成 Drizzle 迁移 — `packages/core/supervisor/drizzle/`
+
+#### 1.3 Orchestrator ↔ Supervisor
+- [ ] C1.1 [P0][M] 实现 `routeToSupervisor()` — 将分解后的 DAG 发布到 NATS `ulw.orchestrator.dag.dispatched` — `packages/core/orchestrator/src/orchestrator.service.ts`
+
+#### 1.4 Core Tests
+- [ ] C1.5 [P0][M] Orchestrator 单元测试 (service, decomposer, intent parser, agent router) — `packages/core/orchestrator/tests/`
+- [ ] C2.9 [P0][M] Supervisor 单元测试 (DAG executor, retry manager, heartbeat monitor, session manager) — `packages/core/supervisor/tests/`
+
+---
+
+### Phase 2 — BC Implementation: Bottom-Up (Week 3-5) ⬜
+
+#### 2.1 BC-PM — Project Management (Day 1-3)
+- [ ] B1.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/pm/drizzle/`
+- [ ] B1.2 [P0][M] 实现 `ProjectRepository` — `packages/bc/pm/src/infrastructure/persistence/repositories/project.repository.ts`
+- [ ] B1.3 [P0][M] 实现 `SprintRepository` — `packages/bc/pm/src/infrastructure/persistence/repositories/sprint.repository.ts`
+- [ ] B1.4 [P0][M] 实现 `StoryRepository` — `packages/bc/pm/src/infrastructure/persistence/repositories/story.repository.ts`
+- [ ] B1.5 [P0][M] 在 use cases 中添加事件发布 (StoryCreated, StoryReady, SprintCommitted) — `packages/bc/pm/src/application/use-cases/index.ts`
+- [ ] B1.13 [P0][M] Use cases 单元测试 (mock repos) — `packages/bc/pm/tests/application/use-cases.test.ts`
+- [ ] B1.6 [P1][M] 实现 GetProj/UpdateProj/DeleteProj/ListProj use cases — 同上
+- [ ] B1.11 [P1][S] 完成 `ProjectController` CRUD — `packages/bc/pm/src/interface/controllers/project.controller.ts`
+
+#### 2.2 BC-AD — Architecture Design (Day 3-5)
+- [ ] B2.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/ad/drizzle/`
+- [ ] B2.2 [P0][XS] 添加 `ArchitectureProposedEvent` 接口类 — `packages/bc/ad/src/domain/events/index.ts`
+- [ ] B2.3 [P0][M] 实现 `ArchitectureSpecRepository` — `packages/bc/ad/src/infrastructure/persistence/repositories/`
+- [ ] B2.4 [P0][M] 实现 `ApiContractRepository` — 同上
+- [ ] B2.5 [P0][M] 在 use cases 中添加事件发布 (ArchitectureProposed/Approved/Rejected, ContractPublished) — `packages/bc/ad/src/application/use-cases/index.ts`
+- [ ] B2.11 [P0][M] Use cases 单元测试 — `packages/bc/ad/tests/application/use-cases.test.ts`
+- [ ] B2.9 [P1][M] 完成 `ArchitectureController` — `packages/bc/ad/src/interface/controllers/architecture.controller.ts`
+
+#### 2.3 BC-CG — Code Generation (Day 5-8)
+- [ ] B3.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/cg/drizzle/`
+- [ ] B3.2 [P0][XS] 添加 `GenerationStartedEvent` / `GenerationFailedEvent` 接口类 — `packages/bc/cg/src/domain/events/index.ts`
+- [ ] B3.3 [P0][M] 实现 `GenerationTaskRepository` — `packages/bc/cg/src/infrastructure/persistence/repositories/`
+- [ ] B3.4 [P0][M] 实现 `GeneratedFileRepository` — 同上
+- [ ] B3.5 [P0][M] 实现 `PullRequestRepository` — 同上
+- [ ] B3.6 [P0][S] 在 `StartGenerationUseCase` 中添加事件发布 (GenerationStarted) — `packages/bc/cg/src/application/use-cases/index.ts`
+- [ ] B3.7 [P0][M] 在 `TransitionTDDUseCase` 中添加事件发布 (TDDTransition, CodeReady, GenerationFailed) — 同上
+- [ ] B3.12 [P0][M] TDD 状态机 + use cases 单元测试 — `packages/bc/cg/tests/application/`
+
+#### 2.4 BC-CR — Code Review (Day 8-10)
+- [ ] B4.1 [P0][XS] 生成 Drizzle 迁移 (pgEnum-based) — `packages/bc/cr/drizzle/`
+- [ ] B4.2 [P0][XS] 添加 `ReviewStartedEvent` / `CheckCompletedEvent` 接口类 — `packages/bc/cr/src/domain/events/index.ts`
+- [ ] B4.3 [P0][M] 实现 `ReviewSessionRepository` — `packages/bc/cr/src/infrastructure/persistence/repositories/`
+- [ ] B4.4 [P0][M] 实现 `ReviewCheckRepository` — 同上
+- [ ] B4.5 [P0][M] 实现 `ViolationRepository` — 同上
+- [ ] B4.9 [P0][M] 在 use cases 中添加事件发布 (ReviewStarted, CheckCompleted, ReviewPassed/ReviewFailed) — `packages/bc/cr/src/application/use-cases/index.ts`
+- [ ] B4.12 [P0][M] Use cases 单元测试 — `packages/bc/cr/tests/application/`
+
+#### 2.5 BC-TA — Test Automation (Day 10-12)
+- [ ] B5.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/ta/drizzle/`
+- [ ] B5.2 [P0][XS] 添加 `TestRunStartedEvent` 接口类 — `packages/bc/ta/src/domain/events/index.ts`
+- [ ] B5.3 [P0][XS] 修复 B0.2 — `TestPassedEvent` / `TestFailedEvent` 区分 NATS 主题
+- [ ] B5.4 [P0][M] 实现 `TestSuiteRepository` — `packages/bc/ta/src/infrastructure/persistence/repositories/`
+- [ ] B5.5 [P0][M] 实现 `TestCaseRepository` — 同上
+- [ ] B5.6 [P0][M] 实现 `TestRunRepository` — 同上
+- [ ] B5.12 [P0][M] 在 use cases 中添加事件发布 (TestRunStarted, TestCaseCompleted, TestPassed/TestFailed, ContractBroken) — `packages/bc/ta/src/application/use-cases/index.ts`
+- [ ] B5.14 [P0][M] Use cases 单元测试 — `packages/bc/ta/tests/application/`
+
+#### 2.6 BC-DP — Deployment (Day 12-15)
+- [ ] B6.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/dp/drizzle/`
+- [ ] B6.2 [P0][XS] 添加 `ReleaseCreatedEvent` / `StageCompletedEvent` 接口类 — `packages/bc/dp/src/domain/events/index.ts`
+- [ ] B6.3 [P0][M] 实现 `ReleaseRepository` — `packages/bc/dp/src/infrastructure/persistence/repositories/`
+- [ ] B6.4 [P0][M] 实现 `PipelineStageRepository` — 同上
+- [ ] B6.5 [P0][M] 实现 `RollbackRepository` — 同上
+- [ ] B6.11 [P0][M] 在 use cases 中添加事件发布 (ReleaseCreated, StageCompleted, Deployed, RollbackTriggered) — `packages/bc/dp/src/application/use-cases/index.ts`
+- [ ] B6.14 [P0][M] Use cases 单元测试 — `packages/bc/dp/tests/application/`
+
+---
+
+### Phase 3 — ACL Implementation (Week 5-7) ⬜
+
+#### 3.1 OpenCode ACL
+- [ ] E1.1 [P0][L] 实现 `TDDStateMachine` — RED→GREEN→REFACTOR 状态转换表 — `packages/acl/opencode-acl/src/tdd-state-machine.ts`
+- [ ] E1.2 [P0][L] 实现 `OpenCodeRuntimeService` — session 创建, prompt 分发, result 收集 — `packages/acl/opencode-acl/src/opencode-runtime.ts`
+- [ ] E1.5 [P0][M] TDD 状态机单元测试 — `packages/acl/opencode-acl/src/tdd-state-machine.test.ts`
+- [ ] E1.6 [P0][M] Worktree 生命周期集成测试 — `packages/acl/opencode-acl/src/worktree-service.test.ts`
+- [ ] E1.3 [P1][M] 实现 `CodeAdapter` — OpenCode tool events → TDD transitions 映射 — `packages/acl/opencode-acl/src/code-adapter.ts`
+- [ ] E1.4 [P1][M] 实现 `WorktreeService` — git worktree create/checkout/cleanup — `packages/acl/opencode-acl/src/worktree-service.ts`
+
+#### 3.2 Git ACL
+- [ ] E2.1 [P0][M] 实现 `GitHubPRClient` — create PR, update, merge, get checks — `packages/acl/git-acl/src/github-pr-client.ts`
+- [ ] E2.4 [P0][M] 实现 `WorktreeService` — create/lock/unlock/prune/list — `packages/acl/git-acl/src/worktree-service.ts`
+- [ ] E2.5 [P0][M] 单元测试 (mocked git shell 输出, mocked GitHub API) — `packages/acl/git-acl/src/*.test.ts`
+- [ ] E2.3 [P1][M] 实现 `GitAdapter` — diff, status, sync, createPR — `packages/acl/git-acl/src/git-adapter.ts`
+
+#### 3.3 OpenClaw ACL
+- [ ] E3.1 [P0][M] 实现 `OpenClawRuntimeService` — 评审 pipeline 的 session management — `packages/acl/openclaw-acl/src/openclaw-runtime.ts`
+- [ ] E3.4 [P0][M] 单元测试 — `packages/acl/openclaw-acl/src/*.test.ts`
+- [ ] E3.2 [P1][M] 实现 `ReviewAdapter` — ulw review check types → OpenClaw ACP stages 映射 — `packages/acl/openclaw-acl/src/review-adapter.ts`
+
+#### 3.4 CI/CD ACL
+- [ ] E4.1 [P0][L] 实现 `K8sClientService` — deployment CRUD via `@kubernetes/client-node` — `packages/acl/cicd-acl/src/k8s-client.ts`
+- [ ] E4.5 [P0][M] 单元测试 (mocked K8s/ArgoCD APIs) — `packages/acl/cicd-acl/src/*.test.ts`
+- [ ] E4.2 [P1][M] 实现 `ArgoClientService` — application sync/status/rollback — `packages/acl/cicd-acl/src/argo-client.ts`
+- [ ] E4.4 [P1][M] 实现 `ApprovalGateService` — create/poll/approve/deny — `packages/acl/cicd-acl/src/approval-gate.ts`
+
+---
+
+### Phase 4 — Integration & End-to-End Flow (Week 7) ⬜
+
+#### 4.1 NATS Event Bus Verification
+- [ ] G2.2 [P0][M] 验证每个 BC 的消费者组 — 订阅上游事件 (PM→AD, AD→CG, CG→CR, CR↔TA, TA→DP) — `packages/bc/*/src/infrastructure/messaging/`
+- [ ] B0.7 [P0][M] 所有 6 个 NATS 事件发布者接入真实连接 (替换 `Not implemented` stubs) — `packages/bc/*/src/infrastructure/messaging/`
+
+#### 4.2 API Gateway
+- [ ] D1.1 [P1][S] 实现 `ProjectController.list()` — `apps/api-gateway/src/rest/project/project.controller.ts`
+- [ ] D1.11 [P0][M] E2E 测试 (health endpoint, REST endpoints, auth flow) — `apps/api-gateway/tests/`
+
+#### 4.3 Cross-BC Integration Tests
+- [ ] G1.1 [P1][L] 全流水线集成测试: PM StoryReady → AD ArchitectureApproved → CG CodeReady → CR ReviewPassed → TA TestPassed → DP Deployed — `tests/integration/end-to-end-flow.test.ts`
+- [ ] G1.2 [P1][M] Review bounce 测试: CR ReviewFailed → CG 开始新循环 — `tests/integration/review-bounce.test.ts`
+- [ ] G1.3 [P1][M] Canary rollback 测试: DP canary 阶段失败 → 自动回滚 — `tests/integration/canary-rollback.test.ts`
+
+---
+
+### Phase 5 — Testing & Quality Gates (Week 8) ⬜
+
+#### 5.1 Coverage Push (80% Target)
+- [ ] Run `pnpm test:coverage` across all packages, verify ≥80% line coverage on:
+  - [ ] `@ulw/shared-types` (H1.1)
+  - [ ] `@ulw/shared-domain` (H1.2)
+  - [ ] `@ulw/shared-events` (H1.3)
+  - [ ] `@ulw/shared-config` (H1.4)
+  - [ ] `@ulw/orchestrator` (H1.5)
+  - [ ] `@ulw/supervisor` (H1.6)
+  - [ ] `@ulw/bc-pm` (H1.7)
+  - [ ] `@ulw/bc-ad` (H1.7)
+  - [ ] `@ulw/bc-cg` (H1.7)
+  - [ ] `@ulw/bc-cr` (H1.7)
+  - [ ] `@ulw/bc-ta` (H1.7)
+  - [ ] `@ulw/bc-dp` (H1.7)
+  - [ ] `@ulw/acl-*` × 4 packages (H1.8)
+
+#### 5.2 CI/CD Pipeline Finalization
+- [ ] F3.1 [P2][M] 接入 E2E 测试 job 到 CI workflow — `.github/workflows/ci.yml`
+- [ ] F3.2 [P2][S] 接入 contract test stage 到 review pipeline — `.github/workflows/review-pipeline.yml`
+
+---
+
+### Progress Tracking
+
+| Phase | Tasks | Completed | Status |
+|-------|-------|-----------|--------|
+| 0 — Foundation | 24 | 0 | ⬜ Not Started |
+| 1 — Core Engine | 7 | 0 | ⬜ Not Started |
+| 2 — BC Implementation | 42 | 0 | ⬜ Not Started |
+| 3 — ACL Implementation | 14 | 0 | ⬜ Not Started |
+| 4 — Integration | 6 | 0 | ⬜ Not Started |
+| 5 — Testing & Polish | 16 | 0 | ⬜ Not Started |
+| **Total** | **109** | **0** | — |
