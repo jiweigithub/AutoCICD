@@ -7,7 +7,7 @@ catalog:
   # Runtime
   typescript: ^5.7.0
   "@types/node": ^22.0.0
-  zod: ^3.23.0
+  zod: ^4.4.1
 
   # Messaging & Caching
   ioredis: ^5.4.0
