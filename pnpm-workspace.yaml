@@ -6,7 +6,7 @@ packages:
 catalog:
   # Runtime
   typescript: ^5.7.0
-  "@types/node": ^22.0.0
+  "@types/node": ^25.6.0
   zod: ^3.23.0
 
   # Messaging & Caching
