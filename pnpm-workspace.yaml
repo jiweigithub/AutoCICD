@@ -5,7 +5,7 @@ packages:
 
 catalog:
   # Runtime
-  typescript: ^5.7.0
+  typescript: ^6.0.3
   "@types/node": ^22.0.0
   zod: ^3.23.0
 
@@ -30,7 +30,7 @@ catalog:
   "@pact-foundation/pact": ^13.0.0
 
   # Linting
-  eslint: ^9.0.0
+  eslint: ^10.2.1
   prettier: ^3.4.0
   oxlint: ^0.15.0
   typescript-eslint: ^8.0.0
