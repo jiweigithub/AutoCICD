@@ -6,7 +6,7 @@ ulw is an **SDD+TDD pipeline platform** that automates the software delivery lif
 
 **Architecture**: OpenClaw-centric pipeline platform (v2). OpenClaw is the central gateway and orchestration engine. OpenCode is the TDD coding runtime. Pipeline state is session-based (OpenClaw + Redis). Artifacts are JSON in MinIO.
 
-**Current migration state**: Transitioning from v1 (DDD microservices) to v2 (SDD+TDD pipeline). Phase 0 (create pipeline package + skills + config) is complete. Phases 1-5 are pending.
+**Migration**: Migrated from v1 (DDD microservices) to v2 (SDD+TDD pipeline). All 6 phases complete.
 
 ## 6-Stage Pipeline
 
@@ -59,7 +59,7 @@ skills/           — Skill definitions (8 total planned, 6 existing + 2 new)
 infrastructure/   — Pulumi IaC, Helm charts — to be simplified
 .ulw/             — Governance policies (pipeline, review, security, deployment)
 openclaw.config.yml — Single YAML config for OpenClaw (webhooks, agents, skills, pipeline, storage, auth, cron, notifications)
-docs/             — Design documents (v1 + v2, English + Chinese), migration plans
+docs/             — Design documents, migration plan
 ```
 
 ## Coding Conventions
@@ -70,7 +70,7 @@ docs/             — Design documents (v1 + v2, English + Chinese), migration p
 - **Result<T, E> monad**: Domain operations return `Result<T, E>`, never throw for business logic
 - **Conventional Commits**: `feat(scope):`, `fix(scope):`, `refactor(scope):`, `test(scope):`, `chore(scope):`, `docs:`
 - **No AI slop**: No filler phrases, no em dashes, plain words, contractions preferred
-- **Delete first, then create**: v2 migration deletes ~210 v1 files before adding new code
+- **Delete first, then create**: v2 migration deleted ~210 v1 files before adding new code
 - **Keep main buildable**: Each commit leaves the workspace in a type-checking state
 
 ## Key Commands
@@ -89,26 +89,23 @@ pnpm --filter @ulw/pipeline test       # Run pipeline package tests
 docker compose up -d      # Start local dev environment
 ```
 
-## v2 Migration State
+## v2 Migration — Complete
 
-The project is actively migrating from v1 (DDD microservices) to v2 (SDD+TDD pipeline). Tracked in `docs/MODULE_PLAN_v2.md`.
+The project was migrated from v1 (DDD microservices) to v2 (SDD+TDD pipeline). Tracked in `docs/MODULE_PLAN.md`.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 0 | Create pipeline package + skills + openclaw config | **DONE** |
-| 1 | Refactor shared packages (types, events, config) | Pending |
-| 2 | Delete old packages (BCs, core, API gateway) | Pending |
-| 3 | Refine ACLs (remove NestJS patterns) | Pending |
-| 4 | Repurpose agents (restructure by pipeline stage) | Pending |
-| 5 | Infrastructure cleanup (remove PG + NATS) | Pending |
+| 1 | Refactor shared packages (types, events, config) | **DONE** |
+| 2 | Delete old packages (BCs, core, API gateway) | **DONE** |
+| 3 | Refine ACLs (remove NestJS patterns) | **DONE** |
+| 4 | Repurpose agents (restructure by pipeline stage) | **DONE** |
+| 5 | Infrastructure cleanup (remove PG + NATS) | **DONE** |
 
-**Net file delta for v2**: delete ~210 files, keep ~100 files, create ~15 files.
+All 6 phases complete. The repository is now v2-only.
 
 ## Design Documents
 
-- [DESIGN_v2.md](docs/DESIGN_v2.md) — v2 architecture (current target)
-- [DESIGN_v2_zh.md](docs/DESIGN_v2_zh.md) — v2 architecture (Chinese)
-- [MODULE_PLAN_v2.md](docs/MODULE_PLAN_v2.md) — v2 migration plan with TODO checklist
-- [DESIGN.md](docs/DESIGN.md) — v1 architecture (legacy reference)
-- [DESIGN_zh.md](docs/DESIGN_zh.md) — v1 architecture (Chinese)
-- [MODULE_PLAN.md](docs/MODULE_PLAN.md) — v1 completion plan (legacy reference)
+- [DESIGN.md](docs/DESIGN.md) — v2 architecture (SDD+TDD pipeline platform)
+- [DESIGN_zh.md](docs/DESIGN_zh.md) — v2 architecture (Chinese)
+- [MODULE_PLAN.md](docs/MODULE_PLAN.md) — v2 migration plan with TODO checklist

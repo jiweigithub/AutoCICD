@@ -1,1006 +1,1501 @@
-# ulw (UltraWork) — Module Completion Plan
+# ulw (UltraWork) — v2 Migration Plan
 
-> **Version**: v1.0
-> **Date**: 2026-04-29
-> **Status**: Planning Phase
-> **Based on**: DESIGN.md v1.0, current monorepo state (293 TS source files, 21 commits, 16 packages)
-> **Strategy**: BCs with mock ACLs first → validate domain logic → upgrade to real ACLs
+> **Version**: v2.0
+> **Date**: 2026-04-30
+> **Status**: **Complete** — All 6 phases (0–5) finished. v1 → v2 migration done.
+> **Based on**: [DESIGN_v2.md](./DESIGN_v2.md), current v1 monorepo state
+> **Migration**: DDD microservices → SDD+TDD pipeline
+> **Net file delta**: delete ~210 files, keep ~100 files, create ~15 files
+> **Est. effort**: 1 week (parallel execution, 2–3 engineers)
 
 ---
 
 ## Table of Contents
 
-1. [Executive Summary](#executive-summary)
-2. [Atomic Commit Strategy](#atomic-commit-strategy)
-3. [A. Shared Foundation](#a-shared-foundation)
-4. [B. Bounded Contexts](#b-bounded-contexts)
-5. [C. Core Engine](#c-core-engine)
-6. [D. API Gateway](#d-api-gateway)
-7. [E. ACL Implementations](#e-acl-implementations)
-8. [F. Infrastructure & CI/CD](#f-infrastructure--cicd)
-9. [G. Integration & End-to-End Flow](#g-integration--end-to-end-flow)
-10. [H. Testing & Quality Gates](#h-testing--quality-gates)
-11. [Dependency Graph & Execution Order](#dependency-graph--execution-order)
-12. [Risk Register](#risk-register)
+1. [Executive Summary](#1-executive-summary)
+2. [Gap Analysis](#2-gap-analysis)
+3. [What to Delete](#3-what-to-delete)
+4. [What to Keep](#4-what-to-keep)
+5. [What to Create](#5-what-to-create)
+6. [Phase-by-Phase Execution Plan](#6-phase-by-phase-execution-plan)
+7. [Atomic Commit Strategy](#7-atomic-commit-strategy)
+8. [TODO Checklist](#8-todo-checklist)
+9. [Risk Register](#9-risk-register)
 
 ---
 
-## Executive Summary
+## 1. Executive Summary
 
-The ulw monorepo skeleton is initialized with all 16 packages scaffolded, all domain interfaces defined, CI/CD pipelines active, and infrastructure IaC in place. The critical gap is **implementation code**: use cases, ACL adapters, DAG execution, NATS messaging, controllers, and tests are overwhelmingly stubs or not yet written.
+### 1.1 Migration Overview
 
-**Total effort estimate**: ~34 person-weeks (8-9 weeks x 4 developers) to reach MVP.
+The v1 architecture (DESIGN.md) models ulw as a DDD microservice platform: 6 bounded contexts communicating via NATS JetStream, orchestrated by NestJS, backed by PostgreSQL with Drizzle ORM, and exposed through a NestJS API Gateway with REST + tRPC.
 
-**Key findings from codebase exploration**:
-- Domain entities and value objects are **complete and production-quality** across all 6 BCs
-- Shared packages (types, domain, events, config) are **~95% complete** but have **zero tests**
-- **All 30 repository implementations** across 6 BCs throw `Error('Not implemented')`
-- **Zero Drizzle migrations** have been generated for any BC
-- **8 of 22 NATS event subjects** have no corresponding event interface in any BC
-- TA BC has a bug: `TestPassedEvent` and `TestFailedEvent` share the same NATS subject
-- All 4 ACL packages are **pure interface definitions** (0% implementation)
-- Orchestrator DAG decomposition is real; Supervisor DAG execution is a stub
+The v2 architecture (DESIGN_v2.md) replaces this with a **SDD+TDD pipeline platform**. OpenClaw is the central gateway and orchestration engine. OpenCode is the TDD coding runtime. Pipeline state is session-based (OpenClaw + Redis). Artifacts are JSON in MinIO. There are no bounded contexts, no NATS message bus, no PostgreSQL persistence, and no NestJS API gateway.
 
-### Completion by Module Group
+### 1.2 Migration Scope
 
-| Module Group | Current | Target | Est. Effort | Priority |
-|---|---|---|---|---|
-| A. Shared Foundation | 95% | 100% | S (1w) | P0 |
-| B. Bounded Contexts | 25% | 100% | L (8w) | P1 |
-| C. Core Engine | 60% | 100% | L (6w) | P0 |
-| D. API Gateway | 80% | 100% | M (3w) | P1 |
-| E. ACL Implementations | 0% | 100% | L (6w) | P0 |
-| F. Infrastructure & CI/CD | 90% | 100% | S (1w) | P2 |
-| G. Integration & E2E | 0% | 100% | M (3w) | P1 |
-| H. Testing & Quality Gates | 2% | 100% | L (6w) | P0 |
+| Category | v1 Files | v2 Files | Action |
+|----------|----------|----------|--------|
+| 6 Bounded Contexts (`packages/bc/*`) | 162 source files | 0 | **Delete** |
+| Core Orchestrator + Supervisor (`packages/core/*`) | 40 source files | 0 | **Delete** |
+| API Gateway (`apps/api-gateway/`) | 24 source files | 0 | **Delete** |
+| Shared Domain (`packages/shared/domain/`) | 9 source files | 9 source files | **Keep** |
+| Shared Types (`packages/shared/types/`) | 10 source files | 10 source files | **Refactor** (remove NATS subjects) |
+| Shared Events (`packages/shared/events/`) | 10 source files | 10 source files | **Refactor** (replace NATS schemas with pipeline event Zod schemas) |
+| Shared Config (`packages/shared/config/`) | 6 source files | 6 source files | **Refactor** (load openclaw.config.yml) |
+| ACL Interfaces (`packages/acl/*/src/index.ts`) | 4 interface files | 4 interface files | **Refactor** (remove NestJS DI patterns) |
+| Agents (`agents/`) | 39 files (13 agents × 3) | 21 files (7 agents × 3) | **Repurpose** (reorganize by pipeline stage) |
+| Skills (`skills/`) | 6 SKILL.md files | 8 SKILL.md files | **Create 2 new** (spec-parser, pipeline-orchestrator) |
+| Infrastructure (`infrastructure/`) | 15 files | Fewer (simplified) | **Refactor** (remove PG + NATS resources) |
+| `.ulw/` governance | 8 files | 8 files | **Keep** |
+| Pipeline package (`packages/pipeline/`) | 0 | 10 files | **Create** |
+| `openclaw.config.yml` | 0 | 1 file | **Create** |
 
----
-
-## Atomic Commit Strategy
-
-Follow **Conventional Commits** with BC scope prefixes. TDD enforced: every production commit must have a preceding commit with a failing test.
+### 1.3 Net File Delta
 
 ```
-feat(bc-pm): implement StoryCreated event publishing in use cases
-test(bc-pm): add failing test for StoryCreated event on createStory
-fix(shared): deduplicate topologicalSort between decomposer and executor
-refactor(bc-cr): migrate severity from varchar to pgEnum
-chore(bc-ad): generate initial Drizzle migrations
+Delete:  ~210 files (BCs + Core + API Gateway + node_modules orphans)
+Keep:    ~100 files (shared + ACLs + agents + skills + infra + .ulw + root configs)
+Create:   ~15 files (pipeline package + 2 skills + openclaw config)
 ```
 
-**Commit granularity**: One use-case method, one repository method, or one controller endpoint per commit. No mega-commits.
+### 1.4 Key Principles
 
-**Branch strategy**: Feature branch per module (`feat/bc-pm-usecases`, `feat/acl-opencode`, `feat/core-dag-executor`). Squash merge to main.
-
----
-
-## A. Shared Foundation
-
-### A.1 `@ulw/shared-types`
-
-**Current State** (90%): All domain type definitions, enums, and interfaces complete. NATS subject constants defined in `events.ts`. 0 tests. Subject string duplication with `@ulw/shared-events`.
-
-**Completion Criteria**: Single source of truth for NATS subjects. 100% type-level constraint validation tested.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| A1.1 | Deduplicate NATS subjects — have `types/src/events.ts` re-export from `@ulw/shared-events` subject-registry | `packages/shared/types/src/events.ts` | XS | P0 |
-| A1.2 | Add `version: number` to `DomainEvent` interface in types (align with DESIGN.md) | `packages/shared/types/src/domain.ts` | XS | P1 |
-| A1.3 | Add missing exports: `Entity`, `ValueObject`, `AggregateRoot` type aliases are thin — verify complete | `packages/shared/types/src/domain.ts` | XS | P2 |
-
-**Dependencies**: None
+1. **Delete first, then create** — remove v1 cruft before adding v2 code
+2. **Keep main buildable** — each commit leaves the workspace in a type-checking state
+3. **Parallelize deletes** — all 6 BC deletions are independent and can happen in parallel
+4. **No data migration** — there is no PostgreSQL to migrate; no NATS streams to drain; no running services to sunset (the v1 codebase was a scaffold, not a running system)
 
 ---
 
-### A.2 `@ulw/shared-domain`
+## 2. Gap Analysis
 
-**Current State** (95%): Entity, ValueObject, AggregateRoot, Result<T,E> monad, DomainEvent, 5 domain error types all implemented. Pagination is thin type alias. **0 tests**. `DomainEvent` abstract class lacks `version` field that the interface declares.
+### 2.1 Module Group Comparison: v1 → v2
 
-**Completion Criteria**: All DDD base classes unit-tested. Result monad comprehensively tested. Pagination has helper functions.
+| Module Group | v1 State (DESIGN.md) | v2 Target (DESIGN_v2.md) | Action |
+|---|---|---|---|
+| **Shared Domain** | 9 DDD base classes (Entity, ValueObject, AggregateRoot, Result<T,E>, errors, etc.) — complete | Same classes used by generated code | **Keep** unchanged |
+| **Shared Types** | 10 type files including NATS subject constants, AgentType, Finding, ReviewSession, old pipeline types | Pipeline-focused types: PipelineStage enum, PipelineRun, StageResult; remove NATS subjects and AgentRole/AgentSession | **Refactor** — remove NATS, add pipeline types |
+| **Shared Events** | 7 schema files for 22 NATS event types (per-BC domain events) + envelope + subject registry | 6 Zod-validated pipeline event schemas: StageStarted, StageCompleted, PipelineFailed, PipelineCompleted, UserApprovalRequested, UserApprovalReceived | **Rewrite** — replace all NATS schemas with pipeline schemas |
+| **Shared Config** | ConfigLoader with JSON loading + 30 env var mappings + 8 Zod sub-schemas | ConfigLoader that reads openclaw.config.yml; simplified schemas | **Refactor** — rip out NestJS config, keep loader patterns |
+| **BC-PM** | 30 files: Project/Sprint/Story entities, value objects, NestJS module, controllers, Drizzle schema, mock repos | Not needed — spec parsing stage replaces project management | **Delete** |
+| **BC-AD** | 28 files: ArchitectureSpec, ApiContract, SemVer, NestJS module, controllers, Drizzle schema | Not needed — architecture design stage replaces this BC | **Delete** |
+| **BC-CG** | 26 files: GenerationTask, GeneratedFile, PullRequest, FilePath, TDDState, NestJS module, Drizzle schema | Not needed — TDD code generation stage replaces this BC | **Delete** |
+| **BC-CR** | 26 files: ReviewSession, ReviewCheck, Violation, SeverityThreshold, NestJS module, Drizzle schema | Not needed — code review stage (6 sub-agents) replaces this BC | **Delete** |
+| **BC-TA** | 26 files: TestSuite, TestCase, TestRun, CoverageThreshold, NestJS module, Drizzle schema | Not needed — automated testing stage replaces this BC | **Delete** |
+| **BC-DP** | 26 files: Release, PipelineStage, Rollback, DeploymentVersion, NestJS module, Drizzle schema | Not needed — deployment stage replaces this BC | **Delete** |
+| **Core Orchestrator** | 18 files: TaskDecomposer, IntentParser, AgentRouter, tRPC router, NestJS module | Not needed — OpenClaw Pipeline Engine replaces orchestration | **Delete** |
+| **Core Supervisor** | 22 files: DAGExecutor, SessionManager, HeartbeatMonitor, RetryManager, StateRepository, NATS pub/sub, NestJS module | Not needed — OpenClaw Session Manager + Redis replaces state management | **Delete** |
+| **API Gateway** | 24 files: NestJS app, JWT auth, webhook receivers, REST controllers, tRPC module, middleware | Not needed — OpenClaw Gateway handles webhooks, CLI, HTTP API directly | **Delete** |
+| **ACL Interfaces** | 4 interface files (OpenCode, OpenClaw, Git, CI/CD adapters) — pure TypeScript interfaces, 0% implementation | Same interfaces, simplified — remove NestJS Injectable decorators, keep pure TS | **Refactor** — strip DI, keep contracts |
+| **Agents** | 39 files: 13 v1 agents (6 BC stewards + orchestrator + supervisor + code-reviewer + security-auditor + contract-validator + deploy-agent + tdd-test-agent) organized by v1 role | 21 files: 7 v2 agents (spec-parser, architect, tdd-coder, reviewer, tester, deployer) + reviewer's 6 sub-agents organized by pipeline stage | **Repurpose** — reorganize directory, rewrite identity files |
+| **Skills** | 6 SKILL.md files: code-review, contract-validation, deployment, security-audit, tdd, test-generation | 8 SKILL.md files: add spec-parsing, architecture-design, pipeline-orchestrator; keep existing | **Keep 6 + Create 3** |
+| **Infrastructure** | 15 files: Pulumi stacks, K8s resources (PostgreSQL, NATS, API Gateway, orchestrator pods) | Simplified: remove PG + NATS + BC pods; add OpenClaw + OpenCode job templates | **Refactor** — simplify K8s resources |
+| **Pipeline Package** | Does not exist | Lightweight TypeScript package with pipeline state types (PipelineRun, StageResult, PipelineStage enum) | **Create** |
+| **openclaw.config.yml** | Does not exist | Single YAML defining webhooks, skills, agents, pipeline stages, storage, cache, auth, cron, notifications, observability | **Create** |
 
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| A2.1 | Write unit tests for `Result<T,E>` — ok/err/isOk/isErr/map/flatMap/match/unwrap/unwrapOr/unwrapOrElse | `packages/shared/domain/src/result.test.ts` | S | P0 |
-| A2.2 | Write unit tests for `ValueObject` — equality, hashCode, getEqualityComponents | `packages/shared/domain/src/value-object.test.ts` | S | P0 |
-| A2.3 | Write unit tests for `Entity` — identity equality, domain event collection | `packages/shared/domain/src/entity.test.ts` | S | P0 |
-| A2.4 | Write unit tests for `AggregateRoot` — pullEvents() transactional semantics, clearEvents | `packages/shared/domain/src/aggregate-root.test.ts` | S | P0 |
-| A2.5 | Write unit tests for 5 domain error types — ValidationError, NotFoundError, UnauthorizedError, ConflictError, InvalidOperationError | `packages/shared/domain/src/errors.test.ts` | XS | P0 |
-| A2.6 | Write unit tests for `Identifier<T>` — branded type, equality | `packages/shared/domain/src/identifier.test.ts` | XS | P0 |
-| A2.7 | Add pagination helper: `toPaginatedResult<T>(items, total, meta)` | `packages/shared/domain/src/pagination.ts` | XS | P2 |
-| A2.8 | Add `version` property to `DomainEvent` abstract class (matches `types/domain.ts` interface) | `packages/shared/domain/src/domain-event.ts` | XS | P1 |
+### 2.2 Complexity Reduction Summary
 
-**Dependencies**: A1.2 (version field in type interface)
-
-**Estimated Total**: S (1.5 days)
-
----
-
-### A.3 `@ulw/shared-events`
-
-**Current State** (100% schema scope): All 22 event Zod schemas defined across 7 schema files. Envelope factory implemented. Subject registry defined (duplicated from types). **0 tests**. `BaseEventFields` missing `version` field.
-
-**Completion Criteria**: All 22 schemas validated with round-trip tests. `version` field added. Subject registry is single source of truth.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| A3.1 | Write Zod validation tests for project-events (StoryCreated, StoryReady, SprintCommitted) | `packages/shared/events/src/schemas/project-events.test.ts` | S | P0 |
-| A3.2 | Write Zod validation tests for architecture-events (ArchitectureProposed, ArchitectureApproved, ArchitectureRejected, ContractPublished) | `packages/shared/events/src/schemas/architecture-events.test.ts` | S | P0 |
-| A3.3 | Write Zod validation tests for code-events (GenerationStarted, TDDTransition, CodeReady, GenerationFailed) | `packages/shared/events/src/schemas/code-events.test.ts` | S | P0 |
-| A3.4 | Write Zod validation tests for review-events (ReviewStarted, CheckCompleted, ReviewPassed, ReviewFailed) | `packages/shared/events/src/schemas/review-events.test.ts` | S | P0 |
-| A3.5 | Write Zod validation tests for testing-events (TestRunStarted, TestCaseCompleted, ContractBroken) | `packages/shared/events/src/schemas/testing-events.test.ts` | S | P0 |
-| A3.6 | Write Zod validation tests for deployment-events (ReleaseCreated, StageCompleted, Deployed, RollbackTriggered) | `packages/shared/events/src/schemas/deployment-events.test.ts` | S | P0 |
-| A3.7 | Write Zod validation tests for security-events (SecretDetected, PolicyViolation) | `packages/shared/events/src/schemas/security-events.test.ts` | XS | P0 |
-| A3.8 | Write tests for `createEnvelope()` and `MessageEnvelopeSchema` | `packages/shared/events/src/envelope.test.ts` | S | P0 |
-| A3.9 | Add `version` field to `BaseEventFields` Zod schema (align with A1.2, A2.8) | `packages/shared/events/src/schemas/project-events.ts` (and all 7 schemas) | S | P1 |
-| A3.10 | Ensure `types/src/events.ts` imports subjects from events package (resolve dedup with A1.1) | `packages/shared/types/src/events.ts` | XS | P0 |
-
-**Dependencies**: A1.1, A2.8
-
-**Estimated Total**: M (2.5 days)
+| Metric | v1 | v2 | Delta |
+|--------|----|----|-------|
+| TypeScript source packages | 16 | 5 | −69% |
+| Long-running services (Pods) | 8+ | 4 | −50% |
+| Database instances | 1 (PostgreSQL) | 0 | −100% |
+| Message bus instances | 1 (NATS JetStream) | 0 | −100% |
+| Framework dependencies | NestJS + tRPC + Drizzle + NATS | OpenClaw SDK only | −75% |
+| API endpoints (internal) | 40+ (tRPC procedures) | 0 | −100% |
+| Configuration files | ~15 (.env, NATS, tRPC, per-BC) | 1 (openclaw.config.yml) | −93% |
 
 ---
 
-### A.4 `@ulw/shared-config`
+## 3. What to Delete
 
-**Current State** (95%): ConfigLoader with JSON file loading (YAML stub), 30 env var mappings, deep merge. 8 Zod sub-schemas. `VaultClient` interface with `NoopVaultClient`. **0 tests**.
+### 3.1 Bounded Contexts — `packages/bc/*`
 
-**Completion Criteria**: All config sub-schemas validated. YAML loading implemented. Secrets fields have schema defaults.
+All 6 bounded contexts are replaced by pipeline stages. Their domain entities, NestJS modules, controllers, Drizzle schemas, mock repositories, and messaging stubs are no longer needed.
 
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| A4.1 | Write unit tests for `ConfigLoader` — env var mapping (30 vars), JSON file loading, deep merge | `packages/shared/config/src/loader.test.ts` | M | P0 |
-| A4.2 | Write unit tests for `validateConfig()` — all 8 sub-schemas, edge cases, missing required fields | `packages/shared/config/src/validator.test.ts` | M | P0 |
-| A4.3 | Implement YAML config file loading (add `yaml` package dependency, implement `loadYamlConfigFile`) | `packages/shared/config/src/loader.ts` | S | P1 |
-| A4.4 | Add `.default()` fallbacks for Minio `accessKey`/`secretKey` and Keycloak `clientId`/`clientSecret` in Zod schemas | `packages/shared/config/src/schema.ts` | XS | P1 |
-| A4.5 | Write tests for `defaults.ts` — verify devDefaults matches AppConfigSchema | `packages/shared/config/src/defaults.test.ts` | XS | P1 |
-
-**Dependencies**: None
-
-**Estimated Total**: M (2 days)
-
----
-
-## B. Bounded Contexts
-
-*All 6 BCs share the identical 4-layer DDD structure. Per-BC findings below. Strategy: implement BCs with in-memory mock repositories first to validate domain logic, then upgrade to real persistence and NATS in Phase 3.*
-
-### Cross-BC Structural Issues (Fix First)
-
-| # | Issue | Affected BCs | Fix | Effort | Prio |
-|---|-------|-------------|-----|--------|------|
-| B0.1 | **8 of 22 NATS subjects missing event interfaces**: ArchitectureProposed, GenerationStarted, GenerationFailed, ReviewStarted, CheckCompleted, TestRunStarted, ReleaseCreated, StageCompleted — no BC defines event classes for these | AD, CG, CR, TA, DP | Add event interface class per subject in each BC's `domain/events/` | M | P0 |
-| B0.2 | **TA bug**: `TestPassedEvent` and `TestFailedEvent` both use `EventSubjects.Testing.CaseCompleted` — should be distinct subjects or different event types | TA | Give TestPassed and TestFailed distinct NATS subjects, or add a `result` discriminator field | XS | P0 |
-| B0.3 | **Version naming inconsistency**: PM uses `version`, DP uses `version_label` in Drizzle schema | PM, DP | Standardize on `version` across all BCs | XS | P2 |
-| B0.4 | **CR uses pgEnum**, other 5 BCs use plain `varchar` for enum-like columns | CR, all others | Upgrade all BCs to use `pgEnum` (follows CR pattern) | S | P2 |
-| B0.5 | **Zero Drizzle migrations**: `drizzle-kit generate` never run for any BC | All 6 BCs | Generate initial migration per BC | S | P0 |
-| B0.6 | **All 30 repository implementations** throw `Error('Not implemented')` | All 6 BCs | Implement with Drizzle ORM queries (each repo = separate task below) | L | P0 |
-| B0.7 | **All 6 NATS event publisher implementations** throw `Error('Not implemented')` | All 6 BCs | Wire to real NATS connection (after C2.1 C2.2) | M | P0 |
-
----
-
-### B.1 BC-PM (Project Management)
-
-**Current State** (~45%):
-- **Domain**: Project, Sprint, Story entities with state machines and guard clauses ✓
-- **Value Objects**: SprintDuration ✓
-- **Drizzle Schema**: projects, sprints, stories tables (varchar enums) ✓
-- **Use Cases**: CreateProject, CreateStory, CommitSprint — structurally complete, no event publishing
-- **Repositories**: 3 repo classes exist, all throw `Not implemented` ✗
-- **Messaging**: NATS publisher class exists, throws `Not implemented` ✗
-- **Controllers**: `POST /projects` works. `GET /projects/:id` returns `{message: 'Not implemented'}`. No StoryController, no SprintController ✗
-- **Tests**: 8 smoke tests, entity-only ✓
-- **Migrations**: None ✗
-- **Missing events**: StoryCreated, StoryReady, SprintCommitted — interfaces exist but not published
-
-**Completion Criteria**: CRUD for all 3 entities. Story/Sprint lifecycle with event publishing. All repositories wired to DB.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| B1.1 | Generate initial Drizzle migration | `packages/bc/pm/drizzle/` (auto-generated) | XS | P0 |
-| B1.2 | Implement `ProjectRepository` — save, findById, findAll, delete | `packages/bc/pm/src/infrastructure/persistence/repositories/project.repository.ts` | M | P0 |
-| B1.3 | Implement `SprintRepository` — save, findById, findByProjectId, delete | `packages/bc/pm/src/infrastructure/persistence/repositories/sprint.repository.ts` | M | P0 |
-| B1.4 | Implement `StoryRepository` — save, findById, findBySprintId, delete | `packages/bc/pm/src/infrastructure/persistence/repositories/story.repository.ts` | M | P0 |
-| B1.5 | Add event publishing to `CreateProjectUseCase`, `CreateStoryUseCase`, `CommitSprintUseCase` (StoryCreated, StoryReady, SprintCommitted) | `packages/bc/pm/src/application/use-cases/index.ts` | M | P0 |
-| B1.6 | Implement `GetProjectUseCase`, `UpdateProjectUseCase`, `DeleteProjectUseCase`, `ListProjectsUseCase` | `packages/bc/pm/src/application/use-cases/index.ts` | M | P1 |
-| B1.7 | Implement `GetStoryUseCase`, `UpdateStoryUseCase`, `DeleteStoryUseCase` | same file | S | P1 |
-| B1.8 | Implement `GetSprintUseCase`, `ListSprintsUseCase` | same file | S | P1 |
-| B1.9 | Implement `StoryController` — GET/POST/PATCH/DELETE /stories | `packages/bc/pm/src/interface/controllers/story.controller.ts` | S | P1 |
-| B1.10 | Implement `SprintController` — GET/POST/PATCH /sprints | `packages/bc/pm/src/interface/controllers/sprint.controller.ts` | S | P1 |
-| B1.11 | Complete `ProjectController` — implement GET /:id, GET /, PATCH /:id, DELETE /:id | `packages/bc/pm/src/interface/controllers/project.controller.ts` | S | P1 |
-| B1.12 | Add Zod DTOs for story/sprint CRUD | `packages/bc/pm/src/interface/dto/story.dto.ts`, `sprint.dto.ts` | S | P1 |
-| B1.13 | Write unit tests for all use cases (mock repos) | `packages/bc/pm/tests/application/use-cases.test.ts` | M | P0 |
-| B1.14 | Write integration tests for repository (test containers, real DB) | `packages/bc/pm/tests/infrastructure/repositories.test.ts` | M | P1 |
-
-**Dependencies**: B0.5 (migration), B0.6 (repo pattern), A2.4 (domain events), A3.1 (event schemas)
-
-**Estimated Total**: L (5 days)
-
----
-
-### B.2 BC-AD (Architecture Design)
-
-**Current State** (~20%):
-- **Domain**: ArchitectureSpec (lifecycle: proposed/approved/rejected), ApiContract (published/deprecated) ✓
-- **Value Objects**: SemVer (parse, compare, bump) ✓
-- **Drizzle Schema**: architecture_specs (jsonb context), api_contracts ✓
-- **Use Cases**: CreateArchitectureSpec, CreateApiContract, ApproveArchitecture — structurally complete, no events. Missing RejectArchitecture ✗
-- **Repositories**: 2 repo classes, throw `Not implemented` ✗
-- **Controllers**: `POST /architecture/spec`, `POST /architecture/approve/:id`. No contract endpoints ✗
-- **Missing event**: ArchitectureProposed (no interface class exists anywhere) — per B0.1
-
-**Completion Criteria**: Full ArchitectureSpec lifecycle. Contract CRUD with OpenAPI spec storage. Events published.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| B2.1 | Generate initial Drizzle migration | `packages/bc/ad/drizzle/` | XS | P0 |
-| B2.2 | Add `ArchitectureProposedEvent` interface class (gap from B0.1) | `packages/bc/ad/src/domain/events/index.ts` | XS | P0 |
-| B2.3 | Implement `ArchitectureSpecRepository` — save, findById, findAll, findByStatus | `packages/bc/ad/src/infrastructure/persistence/repositories/` | M | P0 |
-| B2.4 | Implement `ApiContractRepository` — save, findById, findBySpecId | same dir | M | P0 |
-| B2.5 | Add event publishing to use cases (ArchitectureProposed, ArchitectureApproved, ArchitectureRejected, ContractPublished) | `packages/bc/ad/src/application/use-cases/index.ts` | M | P0 |
-| B2.6 | Implement `RejectArchitectureUseCase` — transition to rejected with reason | same file | S | P1 |
-| B2.7 | Implement `GetArchitectureSpecUseCase`, `ListArchitectureSpecsUseCase` | same file | S | P1 |
-| B2.8 | Implement `GetApiContractUseCase`, `UpdateApiContractUseCase`, `DeleteApiContractUseCase` | same file | S | P1 |
-| B2.9 | Implement full `ArchitectureController` — GET/POST/PATCH/DELETE /architecture/specs, POST /architecture/reject/:id | `packages/bc/ad/src/interface/controllers/architecture.controller.ts` | M | P1 |
-| B2.10 | Implement `ContractController` — GET/POST /contracts | `packages/bc/ad/src/interface/controllers/contract.controller.ts` (new) | S | P1 |
-| B2.11 | Write unit tests for all use cases | `packages/bc/ad/tests/application/use-cases.test.ts` | M | P0 |
-| B2.12 | Write integration tests for repository | `packages/bc/ad/tests/infrastructure/repositories.test.ts` | M | P1 |
-
-**Dependencies**: B1.5 (StoryReady events trigger AD), B0.1 (add ArchitectureProposed)
-
-**Estimated Total**: M (3.5 days)
-
----
-
-### B.3 BC-CG (Code Generation)
-
-**Current State** (~15%):
-- **Domain**: GenerationTask (TDDState enum), GeneratedFile, PullRequest entities ✓
-- **Value Objects**: FilePath (traversal guard) ✓
-- **Drizzle Schema**: generation_tasks, generated_files, pull_requests ✓
-- **Use Cases**: StartGeneration, TransitionTDD — structurally complete, no events. Missing GeneratedFile and PR use cases ✗
-- **Repositories**: 3 repo classes, throw `Not implemented` ✗
-- **Missing events**: GenerationStarted, GenerationFailed (no interface classes — B0.1). TDDTransition event has interface but no NATS publisher.
-
-**Completion Criteria**: Full TDD state machine. File write guardrails. PR creation. Event publishing for all 4 CG events.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| B3.1 | Generate initial Drizzle migration | `packages/bc/cg/drizzle/` | XS | P0 |
-| B3.2 | Add `GenerationStartedEvent` and `GenerationFailedEvent` interface classes (gap from B0.1) | `packages/bc/cg/src/domain/events/index.ts` | XS | P0 |
-| B3.3 | Implement `GenerationTaskRepository` — save, findById, findAll, updateStatus | `packages/bc/cg/src/infrastructure/persistence/repositories/` | M | P0 |
-| B3.4 | Implement `GeneratedFileRepository` — save, findByTaskId, findById | same dir | M | P0 |
-| B3.5 | Implement `PullRequestRepository` — save, findByTaskId, updateStatus | same dir | M | P0 |
-| B3.6 | Add event publishing to `StartGenerationUseCase` (GenerationStarted) | `packages/bc/cg/src/application/use-cases/index.ts` | S | P0 |
-| B3.7 | Add event publishing to `TransitionTDDUseCase` (TDDTransition, CodeReady on GREEN→VERIFIED, GenerationFailed on error) | same file | M | P0 |
-| B3.8 | Implement `RecordGeneratedFileUseCase` — validate TDD phase, persist GeneratedFile | same file | M | P1 |
-| B3.9 | Implement `CreatePullRequestUseCase` — collect files, create PR, publish CodeReady | same file | M | P1 |
-| B3.10 | Implement `GetGenerationTaskUseCase`, `ListTasksUseCase` | same file | S | P1 |
-| B3.11 | Implement `GenerationController` — GET/POST /generation, POST /generation/:id/files, POST /generation/:id/transition, POST /generation/:id/pr | `packages/bc/cg/src/interface/controllers/generation.controller.ts` | M | P1 |
-| B3.12 | Write unit tests for TDD state machine and use cases | `packages/bc/cg/tests/application/` | M | P0 |
-| B3.13 | Write integration tests for repositories | `packages/bc/cg/tests/infrastructure/` | M | P1 |
-
-**Dependencies**: B2.5 (ArchitectureApproved events), B0.1 (add missing event interfaces)
-
-**Estimated Total**: L (5 days)
-
----
-
-### B.4 BC-CR (Code Review)
-
-**Current State** (~12%):
-- **Domain**: ReviewSession, ReviewCheck (CheckType enum), Violation (Severity enum) ✓
-- **Value Objects**: SeverityThreshold (orderable comparisons) ✓
-- **Drizzle Schema**: review_sessions, review_checks, violations — **only BC using pgEnum** for severity and check_type — most advanced schema ✓
-- **Use Cases**: Only `StartReviewUseCase` — 1 use case. Missing entire review pipeline orchestration ✗
-- **Repositories**: 3 repo classes, throw `Not implemented` ✗
-- **Missing events**: ReviewStarted, CheckCompleted (no interface classes — B0.1)
-
-**Completion Criteria**: Full review pipeline. Violation recording. Pass/fail/bounce decisions. All 4 review events published.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| B4.1 | Generate initial Drizzle migration (pgEnum-based) | `packages/bc/cr/drizzle/` | XS | P0 |
-| B4.2 | Add `ReviewStartedEvent` and `CheckCompletedEvent` interface classes (gap from B0.1) | `packages/bc/cr/src/domain/events/index.ts` | XS | P0 |
-| B4.3 | Implement `ReviewSessionRepository` — save, findById, findAll, updateResult | `packages/bc/cr/src/infrastructure/persistence/repositories/` | M | P0 |
-| B4.4 | Implement `ReviewCheckRepository` — save, findBySessionId, findById | same dir | M | P0 |
-| B4.5 | Implement `ViolationRepository` — save, findByCheckId, findBySessionId | same dir | M | P0 |
-| B4.6 | Implement `RecordCheckResultUseCase` — create/complete check, record violations | `packages/bc/cr/src/application/use-cases/` | M | P1 |
-| B4.7 | Implement `EvaluateReviewUseCase` — aggregate checks, apply severity thresholds, determine pass/fail/bounce | same file | M | P1 |
-| B4.8 | Implement `AddViolationUseCase` — record violation against a check | same file | S | P1 |
-| B4.9 | Add event publishing to `StartReviewUseCase` (ReviewStarted), `RecordCheckResultUseCase` (CheckCompleted), `EvaluateReviewUseCase` (ReviewPassed/ReviewFailed) | same files | M | P0 |
-| B4.10 | Implement `GetReviewSessionUseCase`, `ListReviewsUseCase`, `GetViolationUseCase` | same file | S | P1 |
-| B4.11 | Implement `ReviewController` — GET/POST /reviews, POST /reviews/:id/checks, POST /reviews/:id/evaluate | `packages/bc/cr/src/interface/controllers/review.controller.ts` | M | P1 |
-| B4.12 | Write unit tests for use cases | `packages/bc/cr/tests/application/` | M | P0 |
-| B4.13 | Write integration tests for repositories | `packages/bc/cr/tests/infrastructure/` | M | P1 |
-
-**Dependencies**: B3.8 (CodeReady events), B0.1 (add missing event interfaces)
-
-**Estimated Total**: M (4 days)
-
----
-
-### B.5 BC-TA (Test Automation)
-
-**Current State** (~12%):
-- **Domain**: TestSuite, TestCase (6 test types), TestRun entities ✓
-- **Value Objects**: CoverageThreshold ✓
-- **Drizzle Schema**: test_suites, test_cases, test_runs ✓
-- **Use Cases**: Only `CreateTestSuiteUseCase` — 1 use case. Missing execution, coverage, contract testing ✗
-- **Bug (B0.2)**: TestPassedEvent and TestFailedEvent share NATS subject `EventSubjects.Testing.CaseCompleted`
-- **Missing events**: TestRunStarted (no interface class — B0.1)
-
-**Completion Criteria**: Test suite CRUD. Test execution with coverage collection. Contract test verification. Events published.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| B5.1 | Generate initial Drizzle migration | `packages/bc/ta/drizzle/` | XS | P0 |
-| B5.2 | Add `TestRunStartedEvent` interface class (gap from B0.1) | `packages/bc/ta/src/domain/events/index.ts` | XS | P0 |
-| B5.3 | Fix B0.2 — give TestPassedEvent and TestFailedEvent distinct NATS subjects | `packages/bc/ta/src/domain/events/index.ts`, `packages/shared/types/src/events.ts` | XS | P0 |
-| B5.4 | Implement `TestSuiteRepository` — save, findById, findAll, delete | `packages/bc/ta/src/infrastructure/persistence/repositories/` | M | P0 |
-| B5.5 | Implement `TestCaseRepository` — save, findBySuiteId, findById, delete | same dir | M | P0 |
-| B5.6 | Implement `TestRunRepository` — save, findBySuiteId, findById, updateResult | same dir | M | P0 |
-| B5.7 | Implement `AddTestCaseUseCase` — create test case in suite | `packages/bc/ta/src/application/use-cases/` | S | P1 |
-| B5.8 | Implement `ExecuteTestRunUseCase` — create run, execute cases, collect results, check coverage | same file | M | P1 |
-| B5.9 | Implement `RecordTestCaseResultUseCase` — update individual case result | same file | S | P1 |
-| B5.10 | Implement `EvaluateCoverageUseCase` — check coverage against threshold, publish TestPassed/TestFailed | same file | M | P1 |
-| B5.11 | Implement `GetTestSuiteUseCase`, `ListTestSuitesUseCase`, `GetTestRunUseCase` | same file | S | P1 |
-| B5.12 | Add event publishing to use cases (TestRunStarted, TestCaseCompleted, TestPassed/TestFailed, ContractBroken) | same files | M | P0 |
-| B5.13 | Implement `TestController` — GET/POST /tests/suites, POST /tests/suites/:id/cases, POST /tests/run, GET /tests/runs/:id | `packages/bc/ta/src/interface/controllers/test.controller.ts` | M | P1 |
-| B5.14 | Write unit tests for use cases | `packages/bc/ta/tests/application/` | M | P0 |
-| B5.15 | Write integration tests for repositories | `packages/bc/ta/tests/infrastructure/` | M | P1 |
-
-**Dependencies**: B4.7 (ReviewPassed events), B2.4 (ContractPublished events), B0.1, B0.2
-
-**Estimated Total**: L (5 days)
-
----
-
-### B.6 BC-DP (Deployment)
-
-**Current State** (~18%):
-- **Domain**: Release, PipelineStage (StageType), Rollback entities ✓
-- **Value Objects**: DeploymentVersion (parse, compare, bump) ✓
-- **Drizzle Schema**: releases, pipeline_stages, rollbacks ✓
-- **Use Cases**: CreateRelease, TriggerRollback — 2 use cases. Missing pipeline stage orchestration ✗
-- **Repositories**: 3 repo classes, throw `Not implemented` ✗
-- **Missing events**: ReleaseCreated, StageCompleted (no interface classes — B0.1)
-
-**Completion Criteria**: Pipeline stage progression. Canary deployment orchestration. Auto-rollback. All 4 DP events published.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| B6.1 | Generate initial Drizzle migration | `packages/bc/dp/drizzle/` | XS | P0 |
-| B6.2 | Add `ReleaseCreatedEvent` and `StageCompletedEvent` interface classes (gap from B0.1) | `packages/bc/dp/src/domain/events/index.ts` | XS | P0 |
-| B6.3 | Implement `ReleaseRepository` — save, findById, findAll, updateStatus | `packages/bc/dp/src/infrastructure/persistence/repositories/` | M | P0 |
-| B6.4 | Implement `PipelineStageRepository` — save, findByReleaseId, findById, updateStatus | same dir | M | P0 |
-| B6.5 | Implement `RollbackRepository` — save, findByReleaseId, findById | same dir | M | P0 |
-| B6.6 | Implement `StartPipelineStageUseCase` — begin a stage, record start time | `packages/bc/dp/src/application/use-cases/` | M | P1 |
-| B6.7 | Implement `CompletePipelineStageUseCase` — mark stage done, advance to next stage, publish StageCompleted | same file | M | P1 |
-| B6.8 | Implement `FailPipelineStageUseCase` — mark stage failed, trigger rollback if auto | same file | M | P1 |
-| B6.9 | Implement `ExecuteCanaryStageUseCase` — progressive traffic shifting, metrics check, success/fail decision | same file | L | P1 |
-| B6.10 | Implement `RequestApprovalUseCase` — create approval gate, wait for human | same file | M | P1 |
-| B6.11 | Add event publishing to use cases (ReleaseCreated, StageCompleted, Deployed, RollbackTriggered) | same files | M | P0 |
-| B6.12 | Implement `GetReleaseUseCase`, `ListReleasesUseCase`, `GetPipelineStatusUseCase` | same file | S | P1 |
-| B6.13 | Implement `DeploymentController` — GET/POST /deployments/releases, POST /deployments/releases/:id/stages/:stageId/start, POST /deployments/releases/:id/rollback | `packages/bc/dp/src/interface/controllers/deployment.controller.ts` | M | P1 |
-| B6.14 | Write unit tests for use cases | `packages/bc/dp/tests/application/` | M | P0 |
-| B6.15 | Write integration tests for repositories | `packages/bc/dp/tests/infrastructure/` | M | P1 |
-
-**Dependencies**: B5.10 (TestPassed events), B4.7 (ReviewPassed events), B0.1 (add missing event interfaces)
-
-**Estimated Total**: L (6 days)
-
----
-
-## C. Core Engine
-
-### C.1 Orchestrator (`@ulw/orchestrator`)
-
-**Current State** (~85%): TaskDecomposer with DAG decomposition, topological sort, 7 domain patterns. IntentParser (keyword-based). AgentRouter (domain-to-agent mapping). REST controller (3 endpoints). tRPC router (3 procedures). Missing: NATS integration, task persistence.
-
-**Completion Criteria**: Orchestrator publishes DAGs to NATS. Decomposition results persisted. Event publishing on task lifecycle.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| C1.1 | Implement `routeToSupervisor()` — publish decomposed DAG to NATS `ulw.orchestrator.dag.dispatched` subject (currently throws NotImplementedError) | `packages/core/orchestrator/src/orchestrator.service.ts` | M | P0 |
-| C1.2 | Create `TaskRepository` — persist DecompositionResult to database | `packages/core/orchestrator/src/repository/task.repository.ts` (new) | M | P1 |
-| C1.3 | Add NATS client to orchestrator module — publish events on task decomposition + status changes | `packages/core/orchestrator/src/messaging/` (new) | M | P1 |
-| C1.4 | Add `getTask` and `listTasks` endpoints to controller (currently only create + get-by-id) | `packages/core/orchestrator/src/controller/orchestrator.controller.ts` | S | P1 |
-| C1.5 | Write unit tests for orchestrator service, decomposer, intent parser, agent router | `packages/core/orchestrator/tests/` | M | P0 |
-| C1.6 | Deduplicate `topologicalSort()` — extract to shared utility (duplicated in supervisor DAGExecutor) | `packages/shared/domain/src/dag-utils.ts` | XS | P2 |
-
-**Dependencies**: C2.1 (supervisor NATS consumer), A4 (config for NATS)
-
-**Estimated Total**: M (3 days)
-
----
-
-### C.2 Supervisor (`@ulw/supervisor`)
-
-**Current State** (~60%): StateRepository (full Drizzle CRUD for 3 tables). RetryManager (exponential backoff with jitter, DLQ). HeartbeatMonitor (agent liveness). SessionManager (in-memory CRUD, persist/restore stubs). DAGExecutor (resolveDependencies + topologicalSort work; executeDAG + executeParallel are stubs). NATS publisher/consumer — all stubs.
-
-**Completion Criteria**: DAG executor dispatches specs to agents. NATS integrated for agent communication. Persistence wired (sessions, exec states, DAG progress to DB).
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| C2.1 | Implement `NATSPublisher.publish()` — real NATS connection, publish to JetStream | `packages/core/supervisor/src/messaging/nats-publisher.ts` | M | P0 |
-| C2.2 | Implement `NATSConsumer.subscribeToStatusEvents()` — subscribe to agent heartbeats and task result subjects | `packages/core/supervisor/src/messaging/nats-consumer.ts` | M | P0 |
-| C2.3 | Implement `DAGExecutor.executeDAG()` — iterate executionOrder, check deps, dispatch specs via NATS, collect results, update spec statuses | `packages/core/supervisor/src/executor/dag-executor.ts` | L | P0 |
-| C2.4 | Implement `DAGExecutor.executeParallel()` — parallel dispatch for same-wave specs (no deps between them) | `packages/core/supervisor/src/executor/dag-executor.ts` | M | P1 |
-| C2.5 | Wire `StateRepository` into `SessionManager.persistSession()` + `restoreSession()` | `packages/core/supervisor/src/session/session-manager.ts` | M | P1 |
-| C2.6 | Wire `StateRepository` into `DAGExecutor` — persist execution states and progress after each spec | `packages/core/supervisor/src/executor/dag-executor.ts` | M | P1 |
-| C2.7 | Wire `SupervisorService.executeDAG()` — connect NATS + DAGExecutor + HeartbeatMonitor + RetryManager | `packages/core/supervisor/src/supervisor.service.ts` | M | P0 |
-| C2.8 | Generate initial Drizzle migration for supervisor state tables | `packages/core/supervisor/drizzle/` | XS | P0 |
-| C2.9 | Write unit tests for DAG executor, retry manager, heartbeat monitor, session manager | `packages/core/supervisor/tests/` | M | P0 |
-| C2.10 | Write integration tests for StateRepository | `packages/core/supervisor/tests/infrastructure/` | M | P1 |
-
-**Dependencies**: C1.1 (orchestrator publishes DAGs), A4 (config for NATS)
-
-**Estimated Total**: L (5 days)
-
----
-
-## D. API Gateway
-
-### D.1 `@ulw/api-gateway`
-
-**Current State** (~80%): NestJS bootstrap with CORS, middleware, guards ✓. JWT auth (guard + strategy + roles decorator) ✓. Webhook receivers (GitHub HMAC, GitLab token) ✓. tRPC module with graceful fallback ✓. Response wrapper interceptor, exception filter ✓. Missing: BC REST controllers for AD/CG/CR/TA/DP, `AuditController.getEvents()` stub, `ProjectController.list()` stub.
-
-**Completion Criteria**: REST endpoints for all 6 BCs. tRPC routers for Supervisor. Audit event aggregation.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| D1.1 | Implement `ProjectController.list()` — query BC-PM module (currently throws NotImplementedError) | `apps/api-gateway/src/rest/project/project.controller.ts` | S | P1 |
-| D1.2 | Implement `AuditController.getEvents()` — query audit events from NATS stream or DB | `apps/api-gateway/src/rest/audit/audit.controller.ts` | M | P1 |
-| D1.3 | Add REST controllers for BC-AD: `ArchitectureController` (forward to BC-AD module) | `apps/api-gateway/src/rest/architecture/architecture.controller.ts` (new) | M | P1 |
-| D1.4 | Add REST controllers for BC-CG: `GenerationController` | `apps/api-gateway/src/rest/generation/generation.controller.ts` (new) | M | P1 |
-| D1.5 | Add REST controllers for BC-CR: `ReviewController` | `apps/api-gateway/src/rest/review/review.controller.ts` (new) | M | P1 |
-| D1.6 | Add REST controllers for BC-TA: `TestController` | `apps/api-gateway/src/rest/testing/test.controller.ts` (new) | M | P1 |
-| D1.7 | Add REST controllers for BC-DP: `DeploymentController` | `apps/api-gateway/src/rest/deployment/deployment.controller.ts` (new) | M | P1 |
-| D1.8 | Add tRPC router for Supervisor (DAG execute, progress, results) | `apps/api-gateway/src/trpc/routers/supervisor.router.ts` (new) | S | P1 |
-| D1.9 | Add AuthGuard role checking using `@Roles()` decorator (currently only validates token, not roles) | `apps/api-gateway/src/auth/auth.guard.ts` | S | P1 |
-| D1.10 | Add rate limiting (nestjs/throttler or Redis-based) for public endpoints | `apps/api-gateway/src/throttle/` (new) | S | P2 |
-| D1.11 | Write e2e tests for health endpoint, all REST endpoints, auth flow | `apps/api-gateway/tests/` | M | P0 |
-| D1.12 | Write integration tests for webhook verification (GitHub HMAC, GitLab token) | `apps/api-gateway/tests/webhook/` | S | P1 |
-
-**Dependencies**: B.1-B.6 (BC modules must work), C.2 (supervisor must work for tRPC)
-
-**Estimated Total**: M (4 days)
-
----
-
-## E. ACL Implementations
-
-*All 4 ACL packages are currently **interface-only** (0% implementation). Strategy per user directive: implement BCs with mock ACLs first, then upgrade to real ACLs in Phase 3.*
-
-### E.1 OpenCode ACL
-
-**Current State**: 5 interfaces (UlwCodeAdapter, OpenCodeRuntime, TDDStateMachine, WorktreeProvider, types). Const `GateRules`. Zero implementation.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| E1.1 | Implement `TDDStateMachine` class — RED→GREEN→REFACTOR→VERIFIED transition table, phase validation, tool allowlists per phase | `packages/acl/opencode-acl/src/tdd-state-machine.ts` (new) | L | P0 |
-| E1.2 | Implement `OpenCodeRuntimeService` — session creation via OpenCode SDK, prompt dispatch, result collection, abort | `packages/acl/opencode-acl/src/opencode-runtime.ts` (new) | L | P0 |
-| E1.3 | Implement `CodeAdapter` — map OpenCode tool events to TDD transitions, validate tool-in-phase | `packages/acl/opencode-acl/src/code-adapter.ts` (new) | M | P1 |
-| E1.4 | Implement `WorktreeService` — git worktree create/checkout/cleanup/list (wrap shell `git worktree`) | `packages/acl/opencode-acl/src/worktree-service.ts` (new) | M | P1 |
-| E1.5 | Write unit tests for TDD state machine transitions (RED→GREEN, GREEN→REFACTOR, REFACTOR→GREEN bounce, etc.) | `packages/acl/opencode-acl/src/tdd-state-machine.test.ts` | M | P0 |
-| E1.6 | Write integration tests for worktree lifecycle | `packages/acl/opencode-acl/src/worktree-service.test.ts` | M | P0 |
-| E1.7 | Update `packages/acl/opencode-acl/src/index.ts` barrel — add real exports (currently only exports interfaces) | same file | XS | P1 |
-
-**Dependencies**: None (self-contained, wraps shell git commands + OpenCode SDK)
-
-**Estimated Total**: L (4.5 days)
-
----
-
-### E.2 Git ACL
-
-**Current State**: 4 interfaces (UlwGitAdapter, WorktreeManager, PRClient, types). Zero implementation.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| E2.1 | Implement `GitHubPRClient` — create PR, update PR, merge PR, get checks via GitHub REST API | `packages/acl/git-acl/src/github-pr-client.ts` (new) | M | P0 |
-| E2.2 | Implement `GitLabPRClient` — MR operations via GitLab REST API (post-MVP, P2) | `packages/acl/git-acl/src/gitlab-pr-client.ts` (new) | M | P2 |
-| E2.3 | Implement `GitAdapter` — diff, status, syncWithBase, createPR (wraps shell `git` + PR client) | `packages/acl/git-acl/src/git-adapter.ts` (new) | M | P1 |
-| E2.4 | Implement `WorktreeService` — create/lock/unlock/prune/list git worktrees (wrap shell `git worktree`) | `packages/acl/git-acl/src/worktree-service.ts` (new) | M | P0 |
-| E2.5 | Write unit tests (mocked git shell output, mocked GitHub API) | `packages/acl/git-acl/src/*.test.ts` | M | P0 |
-| E2.6 | Update barrel exports in `src/index.ts` | same file | XS | P1 |
-
-**Dependencies**: None (wraps shell `git` + GitHub/GitLab APIs)
-
-**Estimated Total**: M (3 days)
-
----
-
-### E.3 OpenClaw ACL
-
-**Current State**: 6 interfaces (UlwReviewAdapter, OpenClawRuntime, ACP types). Zero implementation.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| E3.1 | Implement `OpenClawRuntimeService` — session management for review pipeline, multi-agent dispatch (Analyzer, Critic, Policy) | `packages/acl/openclaw-acl/src/openclaw-runtime.ts` (new) | M | P0 |
-| E3.2 | Implement `ReviewAdapter` — map ulw review check types to OpenClaw ACP stages (style→style_analyzer, security→security_audit, etc.) | `packages/acl/openclaw-acl/src/review-adapter.ts` (new) | M | P1 |
-| E3.3 | Implement ACP pipeline orchestrator — sequential Analyzer → Critic → Policy execution with result aggregation | `packages/acl/openclaw-acl/src/acp-pipeline.ts` (new) | M | P1 |
-| E3.4 | Write unit tests | `packages/acl/openclaw-acl/src/*.test.ts` | M | P0 |
-| E3.5 | Update barrel exports in `src/index.ts` | same file | XS | P1 |
-
-**Dependencies**: None (wraps OpenClaw SDK)
-
-**Estimated Total**: M (2.5 days)
-
----
-
-### E.4 CI/CD ACL
-
-**Current State**: 6 interfaces (UlwCicdAdapter, K8sClient, ArgoClient, ApprovalGate, types). Zero implementation.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| E4.1 | Implement `K8sClientService` — deployment CRUD via `@kubernetes/client-node` | `packages/acl/cicd-acl/src/k8s-client.ts` (new) | L | P0 |
-| E4.2 | Implement `ArgoClientService` — application sync, status query, rollback via ArgoCD REST API | `packages/acl/cicd-acl/src/argo-client.ts` (new) | M | P1 |
-| E4.3 | Implement `CicdAdapter` — translate ulw deploy events (ReleaseCreated, StageCompleted) into K8s/ArgoCD operations | `packages/acl/cicd-acl/src/cicd-adapter.ts` (new) | M | P1 |
-| E4.4 | Implement `ApprovalGateService` — create/poll/approve/deny approval requests | `packages/acl/cicd-acl/src/approval-gate.ts` (new) | M | P1 |
-| E4.5 | Write unit tests (mocked K8s/ArgoCD APIs) | `packages/acl/cicd-acl/src/*.test.ts` | M | P0 |
-| E4.6 | Update barrel exports in `src/index.ts` | same file | XS | P1 |
-
-**Dependencies**: None (wraps K8s client library + ArgoCD API)
-
-**Estimated Total**: M (4 days)
-
----
-
-## F. Infrastructure & CI/CD
-
-### F.1 Pulumi IaC
-
-**Current State** (~95%): Full K8s resource definitions for all components (8 source files, 6 sub-packages). Real Pulumi code, not stubs.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| F1.1 | Add Vault integration for secret management (replace placeholder secrets in ConfigMap/Secret) | `infrastructure/packages/kubernetes/networking.ts` | S | P2 |
-| F1.2 | Add HPA (Horizontal Pod Autoscaler) definitions for orchestrator and supervisor | `infrastructure/packages/kubernetes/index.ts` | S | P2 |
-| F1.3 | Add PDB (Pod Disruption Budget) for stateful components (PostgreSQL, Redis, NATS) | `infrastructure/packages/` | XS | P2 |
-
-**Dependencies**: None
-
-**Estimated Total**: S (0.5 day)
-
----
-
-### F.2 Helm Charts
-
-**Current State** (~100%): 18 files, fully structured chart with dev/staging/prod values overrides. No gaps identified.
-
----
-
-### F.3 GitHub Actions
-
-**Current State** (~100%): 5 workflow files fully implemented (CI, review pipeline, staging/prod deploy, nightly security).
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| F3.1 | Wire E2E test job — currently references `@ulw/e2e` package that does not exist yet (create after H2.1) | `.github/workflows/ci.yml` | M | P2 |
-| F3.2 | Add contract test stage to review pipeline (after H3.1-H3.2) | `.github/workflows/review-pipeline.yml` | S | P2 |
-
-**Dependencies**: H2 (Playwright E2E suite), H3 (Pact contract tests)
-
-**Estimated Total**: S (0.5 day)
-
----
-
-### F.4 Docker Compose
-
-**Current State** (~100%): Local dev environment with 6 services (PostgreSQL, Redis, NATS, MinIO, Keycloak, API Gateway). No gaps identified.
-
----
-
-## G. Integration & End-to-End Flow
-
-### G.1 Cross-BC Event Flow Tests
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| G1.1 | Write integration test: full pipeline — PM StoryReady → AD ArchitectureApproved → CG CodeReady → CR ReviewPassed → TA TestPassed → DP Deployed | `tests/integration/end-to-end-flow.test.ts` (new) | L | P1 |
-| G1.2 | Write integration test: review bounce — CR ReviewFailed → CG starts new cycle | `tests/integration/review-bounce.test.ts` (new) | M | P1 |
-| G1.3 | Write integration test: canary rollback — DP canary stage fails → auto-rollback triggers | `tests/integration/canary-rollback.test.ts` (new) | M | P1 |
-| G1.4 | Write integration test: webhook triggers — GitHub PR webhook → CR StartReview | `tests/integration/webhook-to-review.test.ts` (new) | M | P1 |
-
-**Dependencies**: B.1-B.6 (all BCs working), C.1-C.2 (core working)
-
-**Estimated Total**: L (4 days)
-
----
-
-### G.2 NATS Event Bus Verification
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| G2.1 | Verify NATS JetStream stream creation for all 22 event subjects (currently only defines subjects, no stream config) | `docker/nats/nats.conf` | S | P1 |
-| G2.2 | Verify consumer groups per BC — each BC subscribes to relevant upstream events (PM→AD, AD→CG, CG→CR, CR↔TA, TA→DP) | `packages/bc/*/src/infrastructure/messaging/` | M | P0 |
-| G2.3 | Implement dead-letter queue processing for failed events (extend RetryManager) | `packages/core/supervisor/src/executor/retry-manager.ts` | M | P1 |
-| G2.4 | Write integration test: event ordering test — verify events arrive in correct sequence across BCs | `tests/integration/event-ordering.test.ts` | M | P1 |
-
-**Dependencies**: C2.1, C2.2 (NATS publisher/consumer working)
-
-**Estimated Total**: M (2.5 days)
-
----
-
-### G.3 Observability Wiring
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| G3.1 | Wire OpenTelemetry auto-instrumentation into API Gateway | `apps/api-gateway/src/main.ts` | S | P1 |
-| G3.2 | Wire OpenTelemetry tracing into Supervisor service | `packages/core/supervisor/src/main.ts` | S | P1 |
-| G3.3 | Wire Prometheus metrics for all BC services (request counts, latency, event counts) | `packages/bc/*/src/module.ts` | M | P1 |
-| G3.4 | Verify Grafana dashboards match actual metric names (DORA metrics, review pipeline health) | `.ulw/observability/grafana-dashboards/` | S | P2 |
-
-**Dependencies**: C.2 (supervisor metrics), D.1 (gateway metrics)
-
-**Estimated Total**: S (1.5 days)
-
----
-
-## H. Testing & Quality Gates
-
-### H.1 Unit Test Coverage Push
-
-**Current State**: 9 smoke tests only (8 BC + 1 e2e). Zero coverage config in any vitest.config.ts. Zero shared package tests.
-
-**Completion Criteria**: 80%+ line coverage across `packages/shared/`, `packages/core/`, `packages/bc/`, `packages/acl/`.
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| H1.1 | Achieve 80% coverage on `@ulw/shared-types` (type-level validation tests) | `packages/shared/types/src/*.test.ts` | S | P0 |
-| H1.2 | Achieve 80% coverage on `@ulw/shared-domain` (Result monad, Entity, VOs, errors) | `packages/shared/domain/src/*.test.ts` | M | P0 |
-| H1.3 | Achieve 80% coverage on `@ulw/shared-events` (all 22 event schemas + envelope) | `packages/shared/events/src/**/*.test.ts` | M | P0 |
-| H1.4 | Achieve 80% coverage on `@ulw/shared-config` (loader, validator, defaults) | `packages/shared/config/src/*.test.ts` | M | P0 |
-| H1.5 | Achieve 80% coverage on `@ulw/orchestrator` (decomposer, intent parser, agent router) | `packages/core/orchestrator/tests/` | M | P0 |
-| H1.6 | Achieve 80% coverage on `@ulw/supervisor` (DAG executor, retry, heartbeat, session) | `packages/core/supervisor/tests/` | M | P0 |
-| H1.7 | Achieve 80% coverage on each BC package (6 x domain entities + use cases) | `packages/bc/*/tests/` | L | P0 |
-| H1.8 | Achieve 80% coverage on each ACL package (4 x implementation tests) | `packages/acl/*/src/*.test.ts` | M | P0 |
-| H1.9 | Configure Vitest coverage (`coverage` config + `@vitest/coverage-v8` provider) in all vitest.config.ts files | `packages/*/vitest.config.ts`, `apps/*/vitest.config.ts` | S | P0 |
-| H1.10 | Add `pnpm test:coverage` script to root `package.json` | `package.json` | XS | P1 |
-
-**Dependencies**: Individual module tasks above. Many test hours already counted in sections A-E.
-
-**Estimated Total (net new beyond sections above)**: M (3 days)
-
----
-
-### H.2 E2E Testing (Playwright)
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| H2.1 | Create `@ulw/e2e` package with Playwright config (Chromium, headed/headless, base URL) | `packages/e2e/` (new package) | M | P1 |
-| H2.2 | Write e2e test: full pipeline flow through UI/API — create project → architecture → code gen → review → test → deploy | `packages/e2e/tests/full-pipeline.spec.ts` | M | P1 |
-| H2.3 | Write e2e test: GitHub webhook → triggers review pipeline → results appear | `packages/e2e/tests/github-webhook.spec.ts` | M | P1 |
-| H2.4 | Write e2e test: canary deployment with rollback (visual verification of traffic shifting) | `packages/e2e/tests/canary-rollback.spec.ts` | M | P2 |
-
-**Dependencies**: G.1 (integration tests must pass first)
-
-**Estimated Total**: M (2.5 days)
-
----
-
-### H.3 Contract Testing (Pact)
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| H3.1 | Write Pact consumer test for BC-CG → BC-CR contract (CodeReady event shape) | `packages/bc/cg/tests/contract/cg-cr.pact.spec.ts` (new) | M | P2 |
-| H3.2 | Write Pact consumer test for BC-TA → BC-DP contract (TestPassed event shape) | `packages/bc/ta/tests/contract/ta-dp.pact.spec.ts` (new) | M | P2 |
-| H3.3 | Write Pact consumer test for BC-AD → BC-CG contract (ArchitectureApproved shape) | `packages/bc/ad/tests/contract/ad-cg.pact.spec.ts` (new) | M | P2 |
-| H3.4 | Add Pact broker CI stage to `review-pipeline.yml` | `.github/workflows/review-pipeline.yml` | S | P2 |
-
-**Dependencies**: F.3 (CI workflow), G.1 (event flow tests)
-
-**Estimated Total**: M (2 days)
-
----
-
-### H.4 Quality Gates (Pre-Commit & CI)
-
-| # | Task | File(s) | Effort | Prio |
-|---|---|---|---|---|
-| H4.1 | Add pre-commit hooks (husky + lint-staged): eslint, oxlint, prettier on staged files | Root `package.json`, `.husky/pre-commit`, `.lintstagedrc.json` | S | P1 |
-| H4.2 | Add commitlint for Conventional Commits enforcement | `commitlint.config.js`, `.husky/commit-msg` | S | P1 |
-| H4.3 | Add typecheck gate to pre-commit hooks (fast, per-package `tsc --noEmit`) | `.husky/pre-commit` | S | P1 |
-| H4.4 | Add bundle size monitoring for API Gateway (if web UI is added later) | CI workflow | S | P2 |
-
-**Dependencies**: None
-
-**Estimated Total**: S (1 day)
-
----
-
-## Dependency Graph & Execution Order
+#### packages/bc/pm/ — Project Management (30 files)
 
 ```
-Phase 0: Foundation (Week 1)
-  ├── A1-A3: Shared types/domain/events tests
-  ├── A4: Shared config tests + YAML loading
-  ├── B0.1-B0.5: Fix cross-BC structural issues (missing NATS subjects, TA bug, migrations)
-  └── H4: Pre-commit hooks + commitlint
+packages/bc/pm/drizzle.config.ts
+packages/bc/pm/package.json
+packages/bc/pm/src/application/index.ts
+packages/bc/pm/src/application/ports/index.ts
+packages/bc/pm/src/application/use-cases/index.ts
+packages/bc/pm/src/domain/entities/index.ts
+packages/bc/pm/src/domain/entities/project.ts
+packages/bc/pm/src/domain/entities/sprint.ts
+packages/bc/pm/src/domain/entities/story.ts
+packages/bc/pm/src/domain/events/index.ts
+packages/bc/pm/src/domain/index.ts
+packages/bc/pm/src/domain/repositories/index.ts
+packages/bc/pm/src/domain/services/index.ts
+packages/bc/pm/src/domain/value-objects/index.ts
+packages/bc/pm/src/domain/value-objects/sprint-duration.ts
+packages/bc/pm/src/index.ts
+packages/bc/pm/src/infrastructure/index.ts
+packages/bc/pm/src/infrastructure/messaging/index.ts
+packages/bc/pm/src/infrastructure/persistence/index.ts
+packages/bc/pm/src/infrastructure/persistence/repositories/index.ts
+packages/bc/pm/src/infrastructure/persistence/schema.ts
+packages/bc/pm/src/interface/controllers/index.ts
+packages/bc/pm/src/interface/controllers/project.controller.ts
+packages/bc/pm/src/interface/dto/index.ts
+packages/bc/pm/src/interface/dto/project.dto.ts
+packages/bc/pm/src/interface/index.ts
+packages/bc/pm/src/module.ts
+packages/bc/pm/tests/domain/smoke.test.ts
+packages/bc/pm/tsconfig.json
+packages/bc/pm/vitest.config.ts
+```
 
-Phase 1: Core Engine Enablement (Week 2-3)
-  ├── C2.1-C2.2: NATS publisher + consumer implementation
-  ├── C2.3-C2.4: DAG executor (executeDAG, executeParallel)
-  ├── C2.5-C2.7: Wire persistence + session + supervisor service
-  ├── C1.1: routeToSupervisor() → NATS dispatch
-  └── C1.2-C1.5: Task persistence + tests
-  ═══ BLOCKS BC INTEGRATION ═══
+#### packages/bc/ad/ — Architecture Design (28 files)
 
-Phase 2: BC Implementation — Bottom-Up (Week 3-5)
-  ├── B1: PM repositories → use cases → controllers (StoryReady feeds AD)
-  ├── B2: AD repositories → use cases → controllers (ArchitectureApproved feeds CG)
-  ├── B3: CG repositories → use cases → controllers (CodeReady feeds CR)
-  ├── B4: CR repositories → use cases → controllers (ReviewPassed feeds TA/DP)
-  ├── B5: TA repositories → use cases → controllers (TestPassed feeds DP)
-  └── B6: DP repositories → use cases → controllers (final BC)
-  Note: BCs use in-memory mock repos initially, real DB in Phase 4
+```
+packages/bc/ad/drizzle.config.ts
+packages/bc/ad/package.json
+packages/bc/ad/src/application/index.ts
+packages/bc/ad/src/application/ports/index.ts
+packages/bc/ad/src/application/use-cases/index.ts
+packages/bc/ad/src/domain/entities/api-contract.ts
+packages/bc/ad/src/domain/entities/architecture-spec.ts
+packages/bc/ad/src/domain/entities/index.ts
+packages/bc/ad/src/domain/events/index.ts
+packages/bc/ad/src/domain/index.ts
+packages/bc/ad/src/domain/repositories/index.ts
+packages/bc/ad/src/domain/services/index.ts
+packages/bc/ad/src/domain/value-objects/index.ts
+packages/bc/ad/src/domain/value-objects/semver.ts
+packages/bc/ad/src/index.ts
+packages/bc/ad/src/infrastructure/index.ts
+packages/bc/ad/src/infrastructure/messaging/index.ts
+packages/bc/ad/src/infrastructure/persistence/index.ts
+packages/bc/ad/src/infrastructure/persistence/repositories/index.ts
+packages/bc/ad/src/infrastructure/persistence/schema.ts
+packages/bc/ad/src/interface/controllers/architecture.controller.ts
+packages/bc/ad/src/interface/controllers/index.ts
+packages/bc/ad/src/interface/dto/index.ts
+packages/bc/ad/src/interface/index.ts
+packages/bc/ad/src/module.ts
+packages/bc/ad/tests/domain/smoke.test.ts
+packages/bc/ad/tsconfig.json
+packages/bc/ad/vitest.config.ts
+```
 
-Phase 3: ACL Implementation (Week 5-6)
-  ├── E2.1-E2.5: Git ACL (PR client + worktree service)
-  ├── E1.1-E1.6: OpenCode ACL (TDD state machine + runtime + worktree)
-  ├── E3.1-E3.4: OpenClaw ACL (ACP pipeline)
-  └── E4.1-E4.5: CI/CD ACL (K8s + ArgoCD + approval gates)
+#### packages/bc/cg/ — Code Generation (26 files)
 
-Phase 4: Integration & Real Backends (Week 6-7)
-  ├── G2: NATS event bus verification + consumer groups
-  ├── Upgrade BC repos from mock → real DB (Drizzle queries)
-  ├── Upgrade BC publishers from mock → real NATS
-  ├── G1: Cross-BC event flow integration tests
-  ├── D1: API Gateway completion (all BC controllers, tRPC supervisor)
-  └── G3: Observability wiring (OTel + Prometheus)
+```
+packages/bc/cg/drizzle.config.ts
+packages/bc/cg/package.json
+packages/bc/cg/src/application/index.ts
+packages/bc/cg/src/application/ports/index.ts
+packages/bc/cg/src/application/use-cases/index.ts
+packages/bc/cg/src/domain/entities/index.ts
+packages/bc/cg/src/domain/events/index.ts
+packages/bc/cg/src/domain/index.ts
+packages/bc/cg/src/domain/repositories/index.ts
+packages/bc/cg/src/domain/services/index.ts
+packages/bc/cg/src/domain/value-objects/file-path.ts
+packages/bc/cg/src/domain/value-objects/index.ts
+packages/bc/cg/src/index.ts
+packages/bc/cg/src/infrastructure/index.ts
+packages/bc/cg/src/infrastructure/messaging/index.ts
+packages/bc/cg/src/infrastructure/persistence/index.ts
+packages/bc/cg/src/infrastructure/persistence/repositories/index.ts
+packages/bc/cg/src/infrastructure/persistence/schema.ts
+packages/bc/cg/src/interface/controllers/generation.controller.ts
+packages/bc/cg/src/interface/controllers/index.ts
+packages/bc/cg/src/interface/dto/index.ts
+packages/bc/cg/src/interface/index.ts
+packages/bc/cg/src/module.ts
+packages/bc/cg/tests/domain/smoke.test.ts
+packages/bc/cg/tsconfig.json
+packages/bc/cg/vitest.config.ts
+```
 
-Phase 5: Testing & Polish (Week 7-8)
-  ├── H1: Coverage push to 80%+ across all packages
-  ├── H2: Playwright e2e tests
-  ├── H3: Pact contract tests
-  └── F1-F3: Infrastructure polish (Vault, HPA, PDB)
+#### packages/bc/cr/ — Code Review (26 files)
+
+```
+packages/bc/cr/drizzle.config.ts
+packages/bc/cr/package.json
+packages/bc/cr/src/application/index.ts
+packages/bc/cr/src/application/ports/index.ts
+packages/bc/cr/src/application/use-cases/index.ts
+packages/bc/cr/src/domain/entities/index.ts
+packages/bc/cr/src/domain/events/index.ts
+packages/bc/cr/src/domain/index.ts
+packages/bc/cr/src/domain/repositories/index.ts
+packages/bc/cr/src/domain/services/index.ts
+packages/bc/cr/src/domain/value-objects/index.ts
+packages/bc/cr/src/domain/value-objects/severity-threshold.ts
+packages/bc/cr/src/index.ts
+packages/bc/cr/src/infrastructure/index.ts
+packages/bc/cr/src/infrastructure/messaging/index.ts
+packages/bc/cr/src/infrastructure/persistence/index.ts
+packages/bc/cr/src/infrastructure/persistence/repositories/index.ts
+packages/bc/cr/src/infrastructure/persistence/schema.ts
+packages/bc/cr/src/interface/controllers/index.ts
+packages/bc/cr/src/interface/controllers/review.controller.ts
+packages/bc/cr/src/interface/dto/index.ts
+packages/bc/cr/src/interface/index.ts
+packages/bc/cr/src/module.ts
+packages/bc/cr/tests/domain/smoke.test.ts
+packages/bc/cr/tsconfig.json
+packages/bc/cr/vitest.config.ts
+```
+
+#### packages/bc/ta/ — Test Automation (26 files)
+
+```
+packages/bc/ta/drizzle.config.ts
+packages/bc/ta/package.json
+packages/bc/ta/src/application/index.ts
+packages/bc/ta/src/application/ports/index.ts
+packages/bc/ta/src/application/use-cases/index.ts
+packages/bc/ta/src/domain/entities/index.ts
+packages/bc/ta/src/domain/events/index.ts
+packages/bc/ta/src/domain/index.ts
+packages/bc/ta/src/domain/repositories/index.ts
+packages/bc/ta/src/domain/services/index.ts
+packages/bc/ta/src/domain/value-objects/coverage-threshold.ts
+packages/bc/ta/src/domain/value-objects/index.ts
+packages/bc/ta/src/index.ts
+packages/bc/ta/src/infrastructure/index.ts
+packages/bc/ta/src/infrastructure/messaging/index.ts
+packages/bc/ta/src/infrastructure/persistence/index.ts
+packages/bc/ta/src/infrastructure/persistence/repositories/index.ts
+packages/bc/ta/src/infrastructure/persistence/schema.ts
+packages/bc/ta/src/interface/controllers/index.ts
+packages/bc/ta/src/interface/controllers/test.controller.ts
+packages/bc/ta/src/interface/dto/index.ts
+packages/bc/ta/src/interface/index.ts
+packages/bc/ta/src/module.ts
+packages/bc/ta/tests/domain/smoke.test.ts
+packages/bc/ta/tsconfig.json
+packages/bc/ta/vitest.config.ts
+```
+
+#### packages/bc/dp/ — Deployment (26 files)
+
+```
+packages/bc/dp/drizzle.config.ts
+packages/bc/dp/package.json
+packages/bc/dp/src/application/index.ts
+packages/bc/dp/src/application/ports/index.ts
+packages/bc/dp/src/application/use-cases/index.ts
+packages/bc/dp/src/domain/entities/index.ts
+packages/bc/dp/src/domain/events/index.ts
+packages/bc/dp/src/domain/index.ts
+packages/bc/dp/src/domain/repositories/index.ts
+packages/bc/dp/src/domain/services/index.ts
+packages/bc/dp/src/domain/value-objects/deployment-version.ts
+packages/bc/dp/src/domain/value-objects/index.ts
+packages/bc/dp/src/index.ts
+packages/bc/dp/src/infrastructure/index.ts
+packages/bc/dp/src/infrastructure/messaging/index.ts
+packages/bc/dp/src/infrastructure/persistence/index.ts
+packages/bc/dp/src/infrastructure/persistence/repositories/index.ts
+packages/bc/dp/src/infrastructure/persistence/schema.ts
+packages/bc/dp/src/interface/controllers/deployment.controller.ts
+packages/bc/dp/src/interface/controllers/index.ts
+packages/bc/dp/src/interface/dto/index.ts
+packages/bc/dp/src/interface/index.ts
+packages/bc/dp/src/module.ts
+packages/bc/dp/tests/domain/smoke.test.ts
+packages/bc/dp/tsconfig.json
+packages/bc/dp/vitest.config.ts
+```
+
+**BC subtotal: 162 files**
+
+---
+
+### 3.2 Core Engine — `packages/core/*`
+
+#### packages/core/orchestrator/ — Orchestrator (18 files)
+
+```
+packages/core/orchestrator/package.json
+packages/core/orchestrator/src/controller/dto/create-task.dto.ts
+packages/core/orchestrator/src/controller/orchestrator.controller.ts
+packages/core/orchestrator/src/decomposer/index.ts
+packages/core/orchestrator/src/decomposer/intent-parser.ts
+packages/core/orchestrator/src/decomposer/task-decomposer.ts
+packages/core/orchestrator/src/decomposer/types.ts
+packages/core/orchestrator/src/index.ts
+packages/core/orchestrator/src/main.ts
+packages/core/orchestrator/src/orchestration.module.ts
+packages/core/orchestrator/src/orchestrator.service.ts
+packages/core/orchestrator/src/router/agent-router.ts
+packages/core/orchestrator/src/router/index.ts
+packages/core/orchestrator/src/router/pattern-selector.ts
+packages/core/orchestrator/src/trpc/orchestrator.router.ts
+packages/core/orchestrator/tests/smoke.test.ts
+packages/core/orchestrator/tsconfig.json
+packages/core/orchestrator/vitest.config.ts
+```
+
+#### packages/core/supervisor/ — Supervisor (22 files)
+
+```
+packages/core/supervisor/package.json
+packages/core/supervisor/src/controller/dto/execute-dag.dto.ts
+packages/core/supervisor/src/controller/supervisor.controller.ts
+packages/core/supervisor/src/executor/dag-executor.ts
+packages/core/supervisor/src/executor/index.ts
+packages/core/supervisor/src/executor/retry-manager.ts
+packages/core/supervisor/src/index.ts
+packages/core/supervisor/src/main.ts
+packages/core/supervisor/src/messaging/index.ts
+packages/core/supervisor/src/messaging/nats-consumer.ts
+packages/core/supervisor/src/messaging/nats-publisher.ts
+packages/core/supervisor/src/session/heartbeat-monitor.ts
+packages/core/supervisor/src/session/index.ts
+packages/core/supervisor/src/session/session-manager.ts
+packages/core/supervisor/src/state/index.ts
+packages/core/supervisor/src/state/schema.ts
+packages/core/supervisor/src/state/state-repository.ts
+packages/core/supervisor/src/supervisor.module.ts
+packages/core/supervisor/src/supervisor.service.ts
+packages/core/supervisor/tests/smoke.test.ts
+packages/core/supervisor/tsconfig.json
+packages/core/supervisor/vitest.config.ts
+```
+
+**Core subtotal: 40 files**
+
+---
+
+### 3.3 API Gateway — `apps/api-gateway/` (24 files)
+
+```
+apps/api-gateway/nest-cli.json
+apps/api-gateway/package.json
+apps/api-gateway/src/app.module.ts
+apps/api-gateway/src/auth/auth.guard.ts
+apps/api-gateway/src/auth/index.ts
+apps/api-gateway/src/auth/jwt.strategy.ts
+apps/api-gateway/src/auth/roles.decorator.ts
+apps/api-gateway/src/common/filters/http-exception.filter.ts
+apps/api-gateway/src/common/interceptors/response-wrapper.interceptor.ts
+apps/api-gateway/src/main.ts
+apps/api-gateway/src/middleware/correlation-id.middleware.ts
+apps/api-gateway/src/middleware/tracing.middleware.ts
+apps/api-gateway/src/rest/audit/audit.controller.ts
+apps/api-gateway/src/rest/audit/dto/audit-query.dto.ts
+apps/api-gateway/src/rest/health.controller.ts
+apps/api-gateway/src/rest/project/dto/create-project.dto.ts
+apps/api-gateway/src/rest/project/project.controller.ts
+apps/api-gateway/src/trpc/routers/index.ts
+apps/api-gateway/src/trpc/trpc.module.ts
+apps/api-gateway/src/webhook/github.webhook.ts
+apps/api-gateway/src/webhook/gitlab.webhook.ts
+apps/api-gateway/tests/health.e2e-spec.ts
+apps/api-gateway/tsconfig.json
+apps/api-gateway/vitest.config.ts
+```
+
+**API Gateway subtotal: 24 files**
+
+---
+
+### 3.4 pnpm-workspace.yaml — Remove Entries
+
+In `/home/jiwei/workspace/AutoCICD/pnpm-workspace.yaml`, remove these lines:
+
+```yaml
+  - "packages/bc/*"          # ← delete: bounded contexts removed
+  - "packages/core/*"        # ← delete: orchestrator + supervisor removed
+  - "apps/*"                 # ← delete: API gateway removed
+```
+
+Keep only:
+```yaml
+packages:
+  - "packages/shared/*"
+  - "packages/acl/*"
+  - "packages/pipeline/*"
+```
+
+Also remove from the `catalog:` section: NestJS dependencies, tRPC dependencies, Drizzle ORM dependencies, NATS client, PostgreSQL driver, Passport/JWT, and all NestJS-related packages. Keep vitest, eslint, prettier, oxlint, zod, typescript, tsup, tsx, and observability packages.
+
+### 3.5 root package.json — Remove Scripts and Dependencies
+
+Remove these scripts from `/home/jiwei/workspace/AutoCICD/package.json`:
+
+```
+"dev": "pnpm --filter @ulw/api-gateway dev"     ← remove (no gateway)
+```
+
+Remove v1 `devDependencies` that are no longer needed (NestJS-related, tRPC-related, Drizzle, NATS, Passport). Keep vitest, typescript, eslint, oxlint, prettier.
+
+### 3.6 docker-compose.yml — Remove Services
+
+Remove from `/home/jiwei/workspace/AutoCICD/docker-compose.yml`:
+- PostgreSQL service
+- NATS service
+
+Keep: Redis, MinIO, Keycloak. Add: OpenClaw Gateway service.
+
+---
+
+**Total deletions: ~226 files + workspace config updates**
+
+---
+
+## 4. What to Keep
+
+### 4.1 Shared Domain — `packages/shared/domain/src/` (9 source files)
+
+DDD base classes used by generated code during Stage 3 (TDD Code Generation). When the architect agent designs aggregates, it references these base classes. When the TDD coder generates code, it extends them.
+
+```
+packages/shared/domain/src/aggregate-root.ts    — AggregateRoot<TId> base class
+packages/shared/domain/src/domain-event.ts       — DomainEvent interface
+packages/shared/domain/src/entity.ts             — Entity<TId> base class
+packages/shared/domain/src/errors.ts             — DomainError + 5 subtypes
+packages/shared/domain/src/identifier.ts         — Identifier<T> branded type
+packages/shared/domain/src/index.ts              — barrel export
+packages/shared/domain/src/pagination.ts         — PaginatedResult<T>
+packages/shared/domain/src/result.ts             — Result<T, E> either monad
+packages/shared/domain/src/value-object.ts       — ValueObject base class
+```
+
+Plus config files:
+```
+packages/shared/domain/package.json
+packages/shared/domain/tsconfig.json
+packages/shared/domain/vitest.config.ts
+```
+
+**Rationale**: These are the only v1 business logic files that survive into v2. OpenCode generates domain code that extends `Entity`, `AggregateRoot`, `ValueObject`, and uses `Result<T,E>` for error handling. The `DomainError` hierarchy is used by generated validation logic. These files have zero dependencies on NestJS, NATS, Drizzle, or PostgreSQL.
+
+### 4.2 Shared Types — `packages/shared/types/src/` (10 source files)
+
+```
+packages/shared/types/src/agent.ts               — AgentType enum (updated for pipeline agents)
+packages/shared/types/src/api.ts                 — API-related type aliases
+packages/shared/types/src/deployment.ts          — Deployment status types
+packages/shared/types/src/domain.ts              — Domain entity/aggregate interface definitions
+packages/shared/types/src/events.ts              — NATS subjects → refactored to pipeline event types
+packages/shared/types/src/index.ts               — barrel export
+packages/shared/types/src/pipeline.ts            — old pipeline types → replaced with new PipelineStage/PipelineRun
+packages/shared/types/src/review.ts              — Finding, ReviewSession, ReviewStatus, CheckType, Severity
+packages/shared/types/src/testing.ts             — Test suite/case type aliases
+packages/shared/types/src/workflow.ts            — old workflow types → replaced
+```
+
+Plus config files:
+```
+packages/shared/types/package.json
+packages/shared/types/tsconfig.json
+packages/shared/types/vitest.config.ts
+```
+
+**Rationale**: Types are the contract layer between the pipeline and generated code. The `Finding`, `ReviewSession`, and `Severity` types are still needed by the review stage. The `AgentType` enum is updated for the 7 pipeline agents. NATS subject constants are removed. Old pipeline/workflow types are replaced with the new `PipelineStage` enum, `PipelineRun`, and `StageResult` types.
+
+### 4.3 Shared Events — `packages/shared/events/src/` (10 source files)
+
+```
+packages/shared/events/src/envelope.ts           — Message envelope (may be simplified)
+packages/shared/events/src/index.ts              — barrel export
+packages/shared/events/src/schemas/architecture-events.ts  — refactor to pipeline arch events
+packages/shared/events/src/schemas/code-events.ts         — refactor to pipeline code events
+packages/shared/events/src/schemas/deployment-events.ts   — refactor to pipeline deploy events
+packages/shared/events/src/schemas/project-events.ts      — refactor to pipeline project/spec events
+packages/shared/events/src/schemas/review-events.ts       — refactor to pipeline review events
+packages/shared/events/src/schemas/security-events.ts     — keep security event schemas
+packages/shared/events/src/schemas/testing-events.ts      — refactor to pipeline test events
+packages/shared/events/src/subject-registry.ts  — NATS subject registry → removed
+```
+
+Plus config files:
+```
+packages/shared/events/package.json
+packages/shared/events/tsconfig.json
+packages/shared/events/vitest.config.ts
+```
+
+**Rationale**: The events package provides Zod-validated schemas for pipeline events. The v1 NATS subject-based event system is replaced with pipeline event Zod schemas (StageStarted, StageCompleted, PipelineFailed, PipelineCompleted, UserApprovalRequested, UserApprovalReceived). The security event schemas (SecretDetected, PolicyViolation) are retained for the security-auditor sub-agent in Stage 4.
+
+### 4.4 Shared Config — `packages/shared/config/src/` (6 source files)
+
+```
+packages/shared/config/src/defaults.ts          — default configuration values
+packages/shared/config/src/index.ts             — barrel export
+packages/shared/config/src/loader.ts            — config file loader (updated for YAML)
+packages/shared/config/src/schema.ts            — Zod config schemas (simplified for v2)
+packages/shared/config/src/secrets.ts           — secret management (env var substitution)
+packages/shared/config/src/validator.ts         — config validation
+```
+
+Plus config files:
+```
+packages/shared/config/package.json
+packages/shared/config/tsconfig.json
+packages/shared/config/vitest.config.ts
+```
+
+**Rationale**: The config package provides the loader infrastructure. In v2, it's updated to load `openclaw.config.yml` instead of the v1 multi-file NestJS config. The loader, secrets, and validator utilities are fundamentally the same pattern. The schema definitions are simplified to match the single openclaw.config.yml structure.
+
+### 4.5 ACL Interfaces — `packages/acl/*/src/index.ts` (4 interface files)
+
+```
+packages/acl/cicd-acl/src/index.ts       — CICDAdapter interface (triggerPipeline, getDeploymentStatus, rollback)
+packages/acl/git-acl/src/index.ts        — GitAdapter interface (createWorktree, commit, push, createPR, removeWorktree)
+packages/acl/openclaw-acl/src/index.ts   — OpenClawAdapter interface (dispatchAgent, notifyUser, getSessionState)
+packages/acl/opencode-acl/src/index.ts   — OpenCodeAdapter interface (createSession, writeFile, runCommand, getDiagnostics, closeSession)
+```
+
+Plus config files for each ACL:
+```
+packages/acl/cicd-acl/package.json
+packages/acl/cicd-acl/tsconfig.json
+packages/acl/cicd-acl/vitest.config.ts
+packages/acl/git-acl/package.json
+packages/acl/git-acl/tsconfig.json
+packages/acl/git-acl/vitest.config.ts
+packages/acl/openclaw-acl/package.json
+packages/acl/openclaw-acl/tsconfig.json
+packages/acl/openclaw-acl/vitest.config.ts
+packages/acl/opencode-acl/package.json
+packages/acl/opencode-acl/tsconfig.json
+packages/acl/opencode-acl/vitest.config.ts
+```
+
+**Rationale**: The ACL interfaces define the adapter contracts between the ulw pipeline and external systems. These are pure TypeScript interfaces (no NestJS decorators). They are the boundary that allows the pipeline code to be testable (mock the adapters) and portable (swap implementations). In v2, the NestJS `@Injectable()` decorators are stripped from these files. The interfaces themselves remain valid as the contract between OpenClaw, OpenCode, Git, and CI/CD systems.
+
+**Total ACL files kept: 4 source + 12 config = 16 files**
+
+### 4.6 Agents — `agents/` (39 existing files → 21 repurposed files)
+
+Existing v1 agents (kept for repurposing, content rewritten for pipeline stage roles):
+
+```
+agents/ad-steward/AGENTS.md         → repurpose as agents/architect/AGENTS.md
+agents/ad-steward/SOUL.md           → repurpose as agents/architect/SOUL.md
+agents/ad-steward/TOOLS.md          → repurpose as agents/architect/TOOLS.md
+agents/cg-steward/AGENTS.md         → repurpose as agents/tdd-coder/AGENTS.md
+agents/cg-steward/SOUL.md           → repurpose as agents/tdd-coder/SOUL.md
+agents/cg-steward/TOOLS.md          → repurpose as agents/tdd-coder/TOOLS.md
+agents/cr-steward/AGENTS.md         → repurpose as agents/reviewer/AGENTS.md
+agents/cr-steward/SOUL.md           → repurpose as agents/reviewer/SOUL.md
+agents/cr-steward/TOOLS.md          → repurpose as agents/reviewer/TOOLS.md
+agents/ta-steward/AGENTS.md         → repurpose as agents/tester/AGENTS.md
+agents/ta-steward/SOUL.md           → repurpose as agents/tester/SOUL.md
+agents/ta-steward/TOOLS.md          → repurpose as agents/tester/TOOLS.md
+agents/dp-steward/AGENTS.md         → repurpose as agents/deployer/AGENTS.md
+agents/dp-steward/SOUL.md           → repurpose as agents/deployer/SOUL.md
+agents/dp-steward/TOOLS.md          → repurpose as agents/deployer/TOOLS.md
+agents/pm-steward/AGENTS.md         → repurpose as agents/spec-parser/AGENTS.md
+agents/pm-steward/SOUL.md           → repurpose as agents/spec-parser/SOUL.md
+agents/pm-steward/TOOLS.md          → repurpose as agents/spec-parser/TOOLS.md
+```
+
+Review sub-agents (kept as-is or repurposed):
+```
+agents/code-reviewer/               → repurpose as agents/reviewer/sub-agents/static-analyzer/
+agents/security-auditor/            → repurpose as agents/reviewer/sub-agents/security-auditor/
+agents/contract-validator/          → repurpose as agents/reviewer/sub-agents/contract-validator/
+```
+
+V1 agents to delete (replaced by OpenClaw native functionality):
+```
+agents/orchestrator/                → delete (replaced by OpenClaw Pipeline Engine)
+agents/supervisor/                  → delete (replaced by OpenClaw Session Manager)
+agents/deploy-agent/                → delete (merged into deployer)
+agents/tdd-test-agent/              → delete (merged into tdd-coder + tester)
+```
+
+New v2 agents needed (no v1 predecessor — built from scratch):
+```
+agents/reviewer/sub-agents/architecture-checker/   — new
+agents/reviewer/sub-agents/style-checker/          — new
+agents/reviewer/sub-agents/dependency-checker/     — new
+```
+
+**Rationale**: The v2 agent model reduces 13 v1 agents to 7 pipeline stage agents + 6 review sub-agents. Steward agents (pm-steward, ad-steward, etc.) are repurposed for the equivalent pipeline stages. The orchestrator and supervisor agents are eliminated because OpenClaw handles those functions natively.
+
+### 4.7 Skills — `skills/` (6 existing SKILL.md files, 3 new)
+
+Existing skills kept as-is or repurposed:
+```
+skills/code-review/SKILL.md          — code review orchestration (still needed)
+skills/contract-validation/SKILL.md  — Pact contract validation (still needed)
+skills/deployment/SKILL.md           — canary deployment workflow (still needed)
+skills/security-audit/SKILL.md       — vulnerability scanning (still needed)
+skills/tdd/SKILL.md                  — RED→GREEN→REFACTOR workflow (still needed)
+skills/test-generation/SKILL.md      — automated test suite generation (still needed)
+```
+
+New skills created (see Section 5):
+```
+skills/spec-parser/SKILL.md          — NEW: Markdown spec parsing
+skills/pipeline-orchestrator/SKILL.md — NEW: pipeline orchestration skill
+```
+
+**Rationale**: Skills define reusable capabilities that agents load at runtime. The existing 6 skills remain relevant — the pipeline stages use the same underlying work patterns (TDD, code review, security audit, etc.). Two new skills are needed: spec-parsing (Stage 1) and pipeline-orchestrator (cross-stage coordination).
+
+### 4.8 Infrastructure — `infrastructure/` (15 files, simplified)
+
+```
+infrastructure/Pulumi.yaml
+infrastructure/Pulumi.dev.yaml
+infrastructure/Pulumi.staging.yaml
+infrastructure/Pulumi.prod.yaml
+infrastructure/index.ts
+infrastructure/package.json
+infrastructure/tsconfig.json
+infrastructure/packages/kubernetes/index.ts
+infrastructure/packages/kubernetes/networking.ts
+infrastructure/packages/kubernetes/storage.ts
+infrastructure/packages/observability/index.ts
+infrastructure/packages/cache/index.ts
+infrastructure/packages/storage/index.ts
+infrastructure/packages/database/index.ts         → refactor: remove PostgreSQL
+infrastructure/packages/messaging/index.ts         → refactor: remove NATS
+```
+
+**Rationale**: The Pulumi IaC and Helm charts are simplified. PostgreSQL and NATS resources are removed. New resources are added: OpenClaw Gateway deployment, OpenCode job pod templates. The observability, cache (Redis), and storage (MinIO) sub-packages remain essentially unchanged.
+
+### 4.9 `.ulw/` Governance (8 files)
+
+```
+.ulw/observability/grafana-dashboards/dora-metrics.json
+.ulw/observability/grafana-dashboards/review-pipeline-health.json
+.ulw/pipeline/deployment-strategies.yml
+.ulw/pipeline/pipeline.yml
+.ulw/review-policies/_shared.yaml
+.ulw/review-policies/code-generation.yaml
+.ulw/review-policies/deployment.yaml
+.ulw/security/semgrep-rules/custom-rules.yaml
+```
+
+**Rationale**: All governance policies, review thresholds, deployment strategies, and security rules in `.ulw/` are version-controlled and remain valid for v2. The pipeline loads these per-repository policies when triggered.
+
+### 4.10 Root Configuration Files
+
+```
+package.json                         — updated (remove NestJS/tRPC/Drizzle/NATS deps)
+pnpm-workspace.yaml                  — updated (remove BC/core/apps entries)
+tsconfig.base.json                   — kept (base TypeScript config unchanged)
+eslint.config.mjs                    — kept (lint rules unchanged)
+oxlintrc.json                        — kept (fast lint config unchanged)
+.prettierrc                          — kept (formatting config unchanged)
+vitest.workspace.ts                  — updated (remove BC/core/apps references)
+AGENTS.md                            — kept (agent context definition)
+README.md                            — updated (reflect v2 architecture)
+docker-compose.yml                   — updated (remove PG + NATS, add OpenClaw)
+pnpm-lock.yaml                       — regenerated after dependency changes
+```
+
+**Total files kept (approximate): ~100 source + config files**
+
+---
+
+## 5. What to Create
+
+### 5.1 Pipeline Package — `packages/pipeline/` (10 files)
+
+A lightweight TypeScript package providing the pipeline state model. These are plain type definitions and enums — no business logic, no DDD classes, no persistence layer.
+
+```
+packages/pipeline/src/state-model.ts         — PipelineStage enum, PipelineRun, StageResult, PipelineRunStatus, StageStatus types
+packages/pipeline/src/stage-executor.ts       — stage dispatch logic: advanceStage(), retryStage(), failStage()
+packages/pipeline/src/pipeline.ts             — pipeline orchestration entry: createPipelineRun(), getNextStage(), validateStageTransition()
+packages/pipeline/package.json                — npm package metadata
+packages/pipeline/tsconfig.json              — TypeScript config (extends tsconfig.base.json)
+packages/pipeline/vitest.config.ts           — Vitest config with coverage
+packages/pipeline/tests/state-model.test.ts   — unit tests for type guards, enum values, serialization
+packages/pipeline/tests/stage-executor.test.ts — unit tests for stage dispatch, retry, failure logic
+packages/pipeline/src/index.ts               — barrel export
+packages/pipeline/README.md                  — package documentation (optional)
+```
+
+**Key Types** (from DESIGN_v2.md Section 4.3):
+
+```typescript
+// packages/pipeline/src/state-model.ts
+export enum PipelineStage {
+  SPEC_PARSING = 'SPEC_PARSING',
+  ARCHITECTURE_DESIGN = 'ARCHITECTURE_DESIGN',
+  TDD_CODE_GEN = 'TDD_CODE_GEN',
+  CODE_REVIEW = 'CODE_REVIEW',
+  AUTOMATED_TESTING = 'AUTOMATED_TESTING',
+  DEPLOYMENT = 'DEPLOYMENT',
+}
+
+export type PipelineRunStatus = 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'ABANDONED';
+
+export type StageStatus = 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'SKIPPED';
+
+export interface PipelineRun {
+  pipelineId: string;                     // UUID
+  specRef: { repo: string; commitSHA: string; filePath: string };
+  status: PipelineRunStatus;
+  currentStage: PipelineStage;
+  stages: Record<PipelineStage, StageResult>;
+  startedAt: string;                      // ISO8601
+  completedAt: string | null;
+  retryCount: number;
+  triggeredBy: string;
+}
+
+export interface StageResult {
+  stage: PipelineStage;
+  status: StageStatus;
+  startedAt: string;
+  completedAt: string | null;
+  artifactKeys: string[];                // MinIO object keys
+  findings?: Finding[];                   // only for CODE_REVIEW stage
+  errorMessage: string | null;
+  retryCount: number;
+}
+```
+
+**Rationale**: The pipeline package is the only new TypeScript code needed. It defines the types that OpenClaw, agents, and dashboard consumers use to track pipeline state. This is a plain type package with no runtime dependencies beyond TypeScript.
+
+### 5.2 Skills — `skills/spec-parser/SKILL.md` and `skills/pipeline-orchestrator/SKILL.md`
+
+#### skills/spec-parser/SKILL.md
+
+A skill that defines how to parse Markdown specification documents into Zod-validated structured JSON. This is used by the spec-parser agent in Stage 1.
+
+**Content outline**:
+- Purpose: Parse Markdown spec documents into StructuredSpec JSON
+- Input format: Markdown with sections (Overview, User Stories, Acceptance Criteria, Data Models, API Contracts, Constraints)
+- Output format: Zod-validated `structured-spec.json`
+- Validation rules: required sections, field constraints, relationship validation
+- Error reporting: line references back to original Markdown
+- Tool bindings: Read (file reading), Write (JSON output), Bash (validation)
+
+#### skills/pipeline-orchestrator/SKILL.md
+
+A skill that defines how OpenClaw orchestrates the 6-stage pipeline. This is the cross-stage coordination logic that OpenClaw loads at startup.
+
+**Content outline**:
+- Purpose: Orchestrate the 6-stage SDD+TDD pipeline
+- Stage dispatch: sequential execution, stage input/output contracts
+- Failure handling: retries, backoff, abandon after 3 failures
+- Gate management: deployment approval gate logic
+- Artifact management: MinIO storage paths, artifact naming conventions
+- Tool bindings: Read, Bash, agent dispatch configuration
+
+### 5.3 OpenClaw Configuration — `openclaw.config.yml`
+
+A single YAML configuration file at the repository root. This replaces ~15 v1 configuration files.
+
+See DESIGN_v2.md Section 9.2 for the complete reference. Key sections:
+
+- `server:` — host, port, TLS config
+- `webhooks:` — GitHub, GitLab, manual CLI triggers
+- `pipeline:` — 6 stage definitions with timeouts, retry configs, gate rules, coverage thresholds
+- `agents:` — 7 agent identities with skill bindings and tool allowlists
+- `skills:` — 8 skill paths with descriptions
+- `storage:` — MinIO connection config
+- `cache:` — Redis connection config
+- `auth:` — Keycloak connection config + RBAC role definitions
+- `cron:` — 3 scheduled jobs (nightly security scan, weekly dependency update, artifact cleanup)
+- `notifications:` — Slack, GitHub, email notification config
+- `observability:` — OpenTelemetry, Prometheus, logging config
+
+### 5.4 Agent Identity Files — New v2 Agents (21 files)
+
+New agent identities for the 7 pipeline stage agents + 6 review sub-agents, organized under `agents/`:
+
+```
+agents/spec-parser/SOUL.md
+agents/spec-parser/AGENTS.md
+agents/spec-parser/TOOLS.md
+agents/architect/SOUL.md
+agents/architect/AGENTS.md
+agents/architect/TOOLS.md
+agents/tdd-coder/SOUL.md
+agents/tdd-coder/AGENTS.md
+agents/tdd-coder/TOOLS.md
+agents/reviewer/SOUL.md
+agents/reviewer/AGENTS.md
+agents/reviewer/TOOLS.md
+agents/reviewer/sub-agents/architecture-checker/SOUL.md
+agents/reviewer/sub-agents/architecture-checker/AGENTS.md
+agents/reviewer/sub-agents/architecture-checker/TOOLS.md
+agents/reviewer/sub-agents/style-checker/SOUL.md
+agents/reviewer/sub-agents/style-checker/AGENTS.md
+agents/reviewer/sub-agents/style-checker/TOOLS.md
+agents/reviewer/sub-agents/dependency-checker/SOUL.md
+agents/reviewer/sub-agents/dependency-checker/AGENTS.md
+agents/reviewer/sub-agents/dependency-checker/TOOLS.md
+agents/tester/SOUL.md
+agents/tester/AGENTS.md
+agents/tester/TOOLS.md
+agents/deployer/SOUL.md
+agents/deployer/AGENTS.md
+agents/deployer/TOOLS.md
+```
+
+**Total new files created: ~15 source files + ~21 agent identity files = ~36 files**
+(Agent identity files are counted as "repurpose from v1" for 4 agents with v1 predecessors, and "create new" for 3 agents without predecessors.)
+
+---
+
+## 6. Phase-by-Phase Execution Plan
+
+### Phase 0: Create New — Pipeline Package + Skills + Config (Risk-Free)
+
+**Goal**: Add new v2 files without touching any existing code. This phase is zero-risk because it only creates files — nothing is deleted or modified.
+
+**Duration**: 2–3 hours
+
+**Tasks**:
+1. Create `packages/pipeline/` directory with all 10 files
+2. Create `skills/spec-parser/SKILL.md`
+3. Create `skills/pipeline-orchestrator/SKILL.md`
+4. Create `openclaw.config.yml` from DESIGN_v2.md Section 9.2 template
+
+**Verification**:
+```bash
+pnpm --filter @ulw/pipeline typecheck   # pipeline types must compile
+pnpm --filter @ulw/pipeline test        # pipeline tests must pass
+ls -la packages/pipeline/src/           # verify all 5 source files exist
+ls -la packages/pipeline/tests/         # verify all 2 test files exist
+ls -la skills/spec-parser/SKILL.md      # verify skill file exists
+ls -la skills/pipeline-orchestrator/SKILL.md  # verify skill file exists
+ls -la openclaw.config.yml              # verify config file exists
+```
+
+### Phase 1: Refactor Shared Packages
+
+**Goal**: Update shared packages for the pipeline model without breaking the monorepo build.
+
+**Duration**: 3–4 hours
+
+**Tasks**:
+
+1. **Refactor `packages/shared/types/src/`**:
+   - Remove NATS subject constants from `events.ts`
+   - Remove `AgentRole`, `AgentSession`, `AgentMessage` from `agent.ts` (replaced by OpenClaw session model)
+   - Remove `ApprovalGate`, `CanaryRule`, and old `PipelineStage` from `pipeline.ts`
+   - Add new `PipelineStage` enum (6 stages) to `pipeline.ts`
+   - Add `PipelineRun`, `StageResult`, `StageStatus`, `PipelineRunStatus` type exports
+   - Add `PipelineEvent` union type
+   - Update barrel exports in `index.ts`
+
+2. **Rewrite `packages/shared/events/src/schemas/`**:
+   - Replace all 7 NATS event schema files with 6 pipeline event schemas:
+     - `pipeline-events.ts`: StageStartedEvent, StageCompletedEvent
+     - `pipeline-lifecycle.ts`: PipelineStartedEvent, PipelineFailedEvent, PipelineCompletedEvent
+     - `approval-events.ts`: UserApprovalRequested, UserApprovalReceived
+   - Remove `subject-registry.ts` (no longer needed)
+   - Update `envelope.ts` for pipeline event format
+   - Update barrel exports in `index.ts`
+
+3. **Refactor `packages/shared/config/src/`**:
+   - Update `loader.ts` to load `openclaw.config.yml` (YAML)
+   - Simplify `schema.ts` for single-file config (remove multi-source merge logic)
+   - Update `defaults.ts` for v2 default values
+   - Keep `secrets.ts` and `validator.ts` as-is
+
+4. **Update `pnpm-workspace.yaml`**:
+   - Remove `packages/bc/*`, `packages/core/*`, `apps/*` entries
+   - Add `packages/pipeline/*` entry
+   - Remove NestJS, tRPC, Drizzle, NATS, Passport from `catalog:`
+
+5. **Update `vitest.workspace.ts`**:
+   - Remove BC, core, and app workspace references
+   - Keep shared and acl workspace references
+   - Add pipeline workspace reference
+
+6. **Update root `package.json`**:
+   - Remove `"dev": "pnpm --filter @ulw/api-gateway dev"` script
+   - Remove v1 `devDependencies` (NestJS, tRPC, etc.)
+
+**Verification**:
+```bash
+pnpm typecheck     # must pass — no BC/core/app references remain
+pnpm lint          # must pass
+pnpm test          # existing shared tests must still pass
+cat pnpm-workspace.yaml | grep "packages/bc"   # must return empty
+cat pnpm-workspace.yaml | grep "packages/pipeline"  # must return the entry
+```
+
+### Phase 2: Delete Old Packages — BCs, Core, API Gateway
+
+**Goal**: Remove all v1-specific packages. This is the largest phase by file count but mechanically simple (pure deletion).
+
+**Duration**: 1–2 hours
+
+**Tasks**:
+1. Delete entire `packages/bc/` directory (all 6 bounded contexts: pm, ad, cg, cr, ta, dp)
+2. Delete entire `packages/core/` directory (orchestrator + supervisor)
+3. Delete entire `apps/` directory (api-gateway)
+4. Clean up empty parent directories if needed
+
+**Verification**:
+```bash
+ls packages/bc/   # must return "No such file or directory"
+ls packages/core/ # must return "No such file or directory"
+ls apps/          # must return "No such file or directory"
+pnpm typecheck    # must pass (no broken imports)
+pnpm build        # must pass (only shared + pipeline + acl packages build)
+```
+
+### Phase 3: Refine ACLs — Remove NestJS Patterns
+
+**Goal**: Strip NestJS dependency injection patterns from ACL interface files. ACLs become pure TypeScript interfaces with no framework dependencies.
+
+**Duration**: 1 hour
+
+**Tasks**:
+1. Review each `packages/acl/*/src/index.ts` for `@Injectable()` decorators — remove them
+2. Review each `packages/acl/*/src/index.ts` for `@nestjs/common` imports — remove them
+3. Verify all interface signatures match DESIGN_v2.md Section 4.5
+4. Update package.json for each ACL to remove `@nestjs/common` dependency
+
+**Verification**:
+```bash
+grep -r "@Injectable" packages/acl/   # must return no matches
+grep -r "@nestjs" packages/acl/       # must return no matches in source files
+pnpm typecheck                         # must pass
+```
+
+### Phase 4: Repurpose Agents — Restructure by Pipeline Stage
+
+**Goal**: Restructure the `agents/` directory from v1 BC-based organization to v2 pipeline stage-based organization.
+
+**Duration**: 4–6 hours
+
+**Tasks**:
+1. Create new directories: `agents/spec-parser/`, `agents/architect/`, `agents/tdd-coder/`, `agents/reviewer/`, `agents/reviewer/sub-agents/`, `agents/tester/`, `agents/deployer/`
+2. Repurpose v1 steward agents:
+   - `agents/pm-steward/*` → rewrite as `agents/spec-parser/*`
+   - `agents/ad-steward/*` → rewrite as `agents/architect/*`
+   - `agents/cg-steward/*` → rewrite as `agents/tdd-coder/*`
+   - `agents/cr-steward/*` → rewrite as `agents/reviewer/*`
+   - `agents/ta-steward/*` → rewrite as `agents/tester/*`
+   - `agents/dp-steward/*` → rewrite as `agents/deployer/*`
+3. Repurpose review sub-agents:
+   - `agents/code-reviewer/*` → rewrite as `agents/reviewer/sub-agents/static-analyzer/*`
+   - `agents/security-auditor/*` → rewrite as `agents/reviewer/sub-agents/security-auditor/*`
+   - `agents/contract-validator/*` → rewrite as `agents/reviewer/sub-agents/contract-validator/*`
+4. Create new review sub-agents from scratch:
+   - `agents/reviewer/sub-agents/architecture-checker/*`
+   - `agents/reviewer/sub-agents/style-checker/*`
+   - `agents/reviewer/sub-agents/dependency-checker/*`
+5. Delete obsolete v1 agents:
+   - `agents/orchestrator/`
+   - `agents/supervisor/`
+   - `agents/deploy-agent/` (merged into deployer)
+   - `agents/tdd-test-agent/` (merged into tdd-coder + tester)
+6. Update SOUL.md, AGENTS.md, TOOLS.md for each v2 agent with pipeline stage context
+
+**Verification**:
+```bash
+find agents/ -type f -name "*.md" | sort     # verify 33 files (11 agents × 3)
+find agents/ -type d | sort                   # verify directory structure matches DESIGN_v2.md Section 6.6
+ls agents/orchestrator/ 2>/dev/null           # must return empty (deleted)
+ls agents/supervisor/ 2>/dev/null             # must return empty (deleted)
 ```
 
 ---
 
-## Risk Register
+## 7. Atomic Commit Strategy
 
-| Risk | Likelihood | Impact | Mitigation |
+Follow **Conventional Commits** with scope prefixes. Commits ordered to keep main buildable at each step.
+
+### Commit Sequence
+
+```
+# Phase 0: Create new (no risk — additive only)
+feat(pipeline): add pipeline state model package
+feat(pipeline): add stage executor with dispatch and retry logic
+test(pipeline): add unit tests for PipelineStage enum and PipelineRun types
+test(pipeline): add unit tests for stage executor dispatch and retry
+feat(skills): add spec-parser skill for Stage 1 spec parsing
+feat(skills): add pipeline-orchestrator skill for cross-stage coordination
+chore: add OpenClaw configuration (openclaw.config.yml)
+chore(workspace): add pipeline package to pnpm-workspace.yaml
+
+# Phase 1: Refactor shared packages
+refactor(shared-events): replace NATS event schemas with pipeline event Zod schemas
+refactor(shared-events): remove subject-registry (NATS-specific)
+refactor(shared-types): remove NATS subject constants and AgentRole/AgentSession types
+refactor(shared-types): add PipelineStage enum and PipelineRun/StageResult types
+refactor(shared-config): update config loader for openclaw.config.yml
+chore(workspace): remove NestJS/tRPC/Drizzle/NATS from pnpm catalog
+chore(workspace): update vitest.workspace.ts for v2 package set
+
+# Phase 2: Delete old packages (one commit per BC)
+chore(bc-pm): remove Project Management bounded context (30 files)
+chore(bc-ad): remove Architecture Design bounded context (28 files)
+chore(bc-cg): remove Code Generation bounded context (26 files)
+chore(bc-cr): remove Code Review bounded context (26 files)
+chore(bc-ta): remove Test Automation bounded context (26 files)
+chore(bc-dp): remove Deployment bounded context (26 files)
+chore(core): remove Orchestrator and Supervisor packages (40 files)
+chore(app): remove API Gateway application (24 files)
+chore(workspace): update pnpm-workspace.yaml — remove BC/core/apps entries
+
+# Phase 3: Refine ACLs
+refactor(acl): remove NestJS decorators and imports from ACL interface files
+refactor(acl): update ACL interfaces for OpenClaw-native invocation
+
+# Phase 4: Repurpose agents
+refactor(agents): repurpose pm-steward → spec-parser for Stage 1
+refactor(agents): repurpose ad-steward → architect for Stage 2
+refactor(agents): repurpose cg-steward → tdd-coder for Stage 3
+refactor(agents): repurpose cr-steward → reviewer for Stage 4
+refactor(agents): repurpose ta-steward → tester for Stage 5
+refactor(agents): repurpose dp-steward → deployer for Stage 6
+refactor(agents): repurpose code-reviewer → static-analyzer sub-agent
+refactor(agents): repurpose security-auditor → security-auditor sub-agent
+refactor(agents): repurpose contract-validator → contract-validator sub-agent
+feat(agents): create architecture-checker sub-agent for review
+feat(agents): create style-checker sub-agent for review
+feat(agents): create dependency-checker sub-agent for review
+chore(agents): remove orchestrator and supervisor agent identities
+
+# Phase 5: Infrastructure cleanup
+refactor(infra): remove PostgreSQL and NATS from Pulumi stacks
+refactor(infra): add OpenClaw Gateway deployment resource
+refactor(infra): add OpenCode job pod template
+refactor(docker): remove PostgreSQL and NATS from docker-compose.yml
+feat(docker): add OpenClaw Gateway to docker-compose.yml
+```
+
+### Branch Strategy
+
+```
+main
+  └── feat/v2-migration
+       ├── Phase 0 commits (pipeline + skills + config)  ← merge first
+       ├── Phase 1 commits (shared refactor)              ← merge second
+       ├── Phase 2 commits (delete BCs + core + app)     ← merge third
+       ├── Phase 3 commits (ACL refine)                   ← merge fourth
+       ├── Phase 4 commits (agent repurpose)              ← merge fifth
+       └── Phase 5 commits (infra cleanup)                ← merge last
+```
+
+Each phase is a PR. Merge phases sequentially — never merge Phase 2 before Phase 1.
+
+---
+
+## 8. TODO Checklist
+
+Items organized by phase. Format: `- [ ] [priority][effort] <file-path> — <description>`
+
+### Phase 0: Create New (P0)
+
+- [x] [P0][S] Create `packages/pipeline/package.json` — npm package metadata with `@ulw/pipeline` name
+- [x] [P0][S] Create `packages/pipeline/tsconfig.json` — extends tsconfig.base.json
+- [x] [P0][S] Create `packages/pipeline/vitest.config.ts` — Vitest config with coverage provider
+- [x] [P0][M] Create `packages/pipeline/src/state-model.ts` — PipelineStage enum, PipelineRun, StageResult types
+- [x] [P0][M] Create `packages/pipeline/src/stage-executor.ts` — stage advance/retry/fail dispatch functions
+- [x] [P0][S] Create `packages/pipeline/src/pipeline.ts` — createPipelineRun(), getNextStage(), validateStageTransition()
+- [x] [P0][S] Create `packages/pipeline/src/index.ts` — barrel export of all public types
+- [x] [P0][S] Create `packages/pipeline/tests/state-model.test.ts` — test PipelineStage enum values and type guards
+- [x] [P0][S] Create `packages/pipeline/tests/stage-executor.test.ts` — test stage dispatch and retry logic
+- [x] [P0][M] Create `skills/spec-parser/SKILL.md` — Markdown spec parsing skill with Zod validation
+- [x] [P0][M] Create `skills/pipeline-orchestrator/SKILL.md` — pipeline orchestration skill with stage dispatch
+- [x] [P0][M] Create `openclaw.config.yml` — full configuration from DESIGN_v2.md Section 9.2 template
+- [x] [P0][XS] Run `pnpm --filter @ulw/pipeline typecheck` — verify pipeline types compile
+- [x] [P0][XS] Run `pnpm --filter @ulw/pipeline test` — verify pipeline tests pass
+
+### Phase 1: Refactor Shared (P0)
+
+- [x] [P0][S] Update `packages/shared/types/src/events.ts` — remove NATS subject constants, add pipeline event type aliases
+- [x] [P0][S] Update `packages/shared/types/src/pipeline.ts` — replace old pipeline types with PipelineStage enum, PipelineRun, StageResult
+- [x] [P0][S] Update `packages/shared/types/src/agent.ts` — update AgentType enum for 7 v2 pipeline agents
+- [x] [P0][S] Update `packages/shared/types/src/index.ts` — update barrel exports for v2 types
+- [x] [P0][S] Remove `packages/shared/types/src/workflow.ts` — old workflow types not needed in v2
+- [x] [P0][M] Rewrite `packages/shared/events/src/schemas/project-events.ts` → `pipeline-events.ts` — StageStartedEvent + StageCompletedEvent
+- [x] [P0][M] Rewrite `packages/shared/events/src/schemas/architecture-events.ts` → `pipeline-lifecycle.ts` — PipelineStartedEvent + PipelineFailedEvent + PipelineCompletedEvent
+- [x] [P0][S] Rewrite `packages/shared/events/src/schemas/code-events.ts` → `approval-events.ts` — UserApprovalRequested + UserApprovalReceived
+- [x] [P0][S] Keep `packages/shared/events/src/schemas/security-events.ts` — SecretDetected and PolicyViolation still used by security-auditor
+- [x] [P0][S] Remove `packages/shared/events/src/schemas/review-events.ts` — review events now part of pipeline lifecycle
+- [x] [P0][S] Remove `packages/shared/events/src/schemas/testing-events.ts` — test events now part of pipeline lifecycle
+- [x] [P0][S] Remove `packages/shared/events/src/schemas/deployment-events.ts` — deployment events now part of pipeline lifecycle
+- [x] [P0][S] Remove `packages/shared/events/src/subject-registry.ts` — no NATS subjects in v2
+- [x] [P0][S] Update `packages/shared/events/src/index.ts` — barrel exports for new event schemas
+- [x] [P0][S] Update `packages/shared/config/src/loader.ts` — add YAML loading for openclaw.config.yml
+- [x] [P0][S] Update `packages/shared/config/src/schema.ts` — simplify for single-file config, remove multi-source merge
+- [x] [P0][XS] Update `packages/shared/config/src/defaults.ts` — add v2 pipeline default values
+- [x] [P0][XS] Update `pnpm-workspace.yaml` — remove `packages/bc/*`, `packages/core/*`, `apps/*`; add `packages/pipeline/*`
+- [x] [P0][XS] Update `pnpm-workspace.yaml` catalog — remove NestJS, tRPC, Drizzle, NATS, Passport dependencies
+- [x] [P0][XS] Update `vitest.workspace.ts` — remove BC/core/app workspace references, keep shared/acl/pipeline
+- [x] [P0][XS] Update root `package.json` — remove `"dev"` script, remove v1 devDependencies
+- [x] [P0][XS] Run `pnpm typecheck` — must pass with no BC/core/app imports
+- [x] [P0][XS] Run `pnpm lint` — must pass
+- [x] [P0][XS] Run `pnpm test` — existing shared tests must still pass
+
+### Phase 2: Delete Old (P0)
+
+- [x] [P0][M] Delete `packages/bc/pm/` — 30 files (Project Management BC)
+- [x] [P0][M] Delete `packages/bc/ad/` — 28 files (Architecture Design BC)
+- [x] [P0][M] Delete `packages/bc/cg/` — 26 files (Code Generation BC)
+- [x] [P0][M] Delete `packages/bc/cr/` — 26 files (Code Review BC)
+- [x] [P0][M] Delete `packages/bc/ta/` — 26 files (Test Automation BC)
+- [x] [P0][M] Delete `packages/bc/dp/` — 26 files (Deployment BC)
+- [x] [P0][M] Delete `packages/core/orchestrator/` — 18 files (Orchestrator service)
+- [x] [P0][M] Delete `packages/core/supervisor/` — 22 files (Supervisor service)
+- [x] [P0][M] Delete `apps/api-gateway/` — 24 files (NestJS API Gateway)
+- [x] [P0][XS] Run `rm -rf packages/bc packages/core apps` (if parent dirs are empty after deletion)
+- [x] [P0][XS] Run `pnpm install` — regenerate pnpm-lock.yaml after package removals
+- [x] [P0][XS] Run `pnpm typecheck` — must pass with no broken imports
+- [x] [P0][XS] Run `pnpm build` — must pass with only shared + pipeline + acl packages
+
+### Phase 3: Refine ACLs (P1) — Already done (Phase 1 catalog cleanup removed NestJS deps, ACLs were already pure TS)
+
+- [x] [P1][S] Update `packages/acl/opencode-acl/src/index.ts` — remove NestJS decorators, keep pure TypeScript interface
+- [x] [P1][S] Update `packages/acl/openclaw-acl/src/index.ts` — remove NestJS decorators, keep pure TypeScript interface
+- [x] [P1][S] Update `packages/acl/git-acl/src/index.ts` — remove NestJS decorators, keep pure TypeScript interface
+- [x] [P1][S] Update `packages/acl/cicd-acl/src/index.ts` — remove NestJS decorators, keep pure TypeScript interface
+- [x] [P1][S] Update each ACL `package.json` — remove `@nestjs/common` dependency
+- [x] [P1][XS] Run `grep -r "@Injectable" packages/acl/` — must return no matches
+- [x] [P1][XS] Run `grep -r "@nestjs" packages/acl/` — must return no matches in source
+- [x] [P1][XS] Run `pnpm typecheck` — ACL packages must compile without NestJS
+
+### Phase 4: Repurpose Agents (P1)
+
+- [x] [P1][M] Create `agents/spec-parser/` — SOUL.md, AGENTS.md, TOOLS.md from pm-steward repurpose
+- [x] [P1][M] Create `agents/architect/` — SOUL.md, AGENTS.md, TOOLS.md from ad-steward repurpose
+- [x] [P1][M] Create `agents/tdd-coder/` — SOUL.md, AGENTS.md, TOOLS.md from cg-steward repurpose
+- [x] [P1][M] Create `agents/reviewer/` — SOUL.md, AGENTS.md, TOOLS.md from cr-steward repurpose
+- [x] [P1][M] Create `agents/tester/` — SOUL.md, AGENTS.md, TOOLS.md from ta-steward repurpose
+- [x] [P1][M] Create `agents/deployer/` — SOUL.md, AGENTS.md, TOOLS.md from dp-steward repurpose
+- [x] [P1][M] Repurpose `agents/code-reviewer/` → `agents/reviewer/sub-agents/static-analyzer/`
+- [x] [P1][M] Repurpose `agents/security-auditor/` → `agents/reviewer/sub-agents/security-auditor/`
+- [x] [P1][M] Repurpose `agents/contract-validator/` → `agents/reviewer/sub-agents/contract-validator/`
+- [x] [P1][M] Create `agents/reviewer/sub-agents/architecture-checker/` — new agent (no v1 predecessor)
+- [x] [P1][M] Create `agents/reviewer/sub-agents/style-checker/` — new agent (no v1 predecessor)
+- [x] [P1][M] Create `agents/reviewer/sub-agents/dependency-checker/` — new agent (no v1 predecessor)
+- [x] [P1][S] Delete `agents/orchestrator/`, `agents/supervisor/`, `agents/deploy-agent/`, `agents/tdd-test-agent/`
+- [x] [P1][XS] Run `find agents/ -type f -name "*.md" | wc -l` — must return 36 (12 agents × 3 files)
+- [x] [P1][XS] Run `find agents/ -type d | sort` — verify directory structure matches DESIGN_v2.md Section 6.6
+
+### Phase 5: Infrastructure Cleanup (P2)
+
+- [x] [P2][S] Update `infrastructure/packages/database/index.ts` — remove PostgreSQL resource definitions
+- [x] [P2][S] Update `infrastructure/packages/messaging/index.ts` — remove NATS resource definitions
+- [x] [P2][M] Add `infrastructure/packages/openclaw/index.ts` — OpenClaw Gateway deployment resource
+- [x] [P2][M] Add `infrastructure/packages/opencode/index.ts` — OpenCode job pod template resource
+- [x] [P2][S] Update `infrastructure/packages/kubernetes/index.ts` — remove BC pod references, add OpenClaw refs
+- [x] [P2][S] Update `docker-compose.yml` — remove PostgreSQL and NATS services
+- [x] [P2][S] Update `docker-compose.yml` — add OpenClaw Gateway service
+- [x] [P2][XS] Run `docker compose config` — verify docker-compose.yml is valid
+- [x] [P2][XS] Run `pnpm typecheck` in infrastructure — verify Pulumi code compiles
+
+---
+
+## 9. Risk Register
+
+| Risk | Probability | Impact | Mitigation |
 |------|-----------|--------|------------|
-| OpenCode SDK API changes during implementation | Medium | High | Version-pin SDK. ACL interfaces already abstract SDK — upgrade adapter, not BCs |
-| NATS JetStream configuration complexity | Medium | Medium | Start with simple pub/sub; add JetStream persistence after core flow works |
-| DAG executor gets stalled agents | High | Medium | HeartbeatMonitor already implements dead-agent detection; RetryManager handles retries with DLQ |
-| Test flakiness in integration tests | Medium | Medium | Use TestContainers for PostgreSQL/NATS/Redis in CI; deterministic test data seeding |
-| Cross-BC event ordering issues | Low | High | Design idempotent event handlers. Use NATS ordered consumer for sequential BC flows |
-| Keycloak version compatibility | Low | Low | Pin to 26.0; realm export committed; dev Docker Compose includes local Keycloak |
-| 8 missing NATS event interfaces cause runtime gaps | High | High | Addressed in B0.1 — fix cross-BC structural issues in Phase 0 before any BC work |
-| All 30 repo stubs block integration testing | High | High | Mock repo pattern in Phase 2; upgrade to real DB in Phase 4. Mock repos sufficient for domain logic validation |
-| Scope creep from "AI integration" expectations | Medium | Medium | LLM-based decomposer deferred to P2 (post-MVP). Rule-based decomposer validates architecture |
+| **Shared domain changes break generated code** | Low | High | Keep `packages/shared/domain/` entirely unchanged in v2. The DDD base classes have zero dependencies on v1 infrastructure. Generated code extending them will not be affected by other package deletions. **If any changes are needed, defer to post-migration.** |
+| **ACL interfaces are needed before they're rewritten** | Low | Medium | The ACLs are currently interface-only (0% implementation). They are contracts, not running code. The v2 pipeline does not need them at migration time — OpenClaw natively dispatches agents. ACLs can be refined as documentation first, implemented later. |
+| **Agent identity file rewrites take longer than estimated** | Medium | Medium | 11 agents × 3 files each = 33 identity documents. The SOUL.md and TOOLS.md files follow a template pattern. Use the existing v1 files as templates, replacing BC-specific context with pipeline stage context. The structural change (rename + reorganize) is fast; the content rewrites are the bottleneck. Allocate 2 extra hours for content quality. |
+| **TypeScript build fails after deleting 226 files** | Low | Low | Phase 2 deletions happen in one commit per BC. Each commit removes a self-contained package with its own imports. Other packages do not import BC internals — only `@ulw/shared-*` types which are preserved. The API Gateway is the only consumer of BC modules, and it is being deleted. **Risk reduced because no cross-package imports exist between BCs and remaining code.** |
+| **pnpm-workspace.yaml catalog removal breaks transitive deps** | Medium | Low | After removing NestJS/tRPC/Drizzle/NATS from the catalog, run `pnpm install` to regenerate the lockfile. If any remaining package (shared config, ACLs) has a residual dependency on a removed package, pnpm will flag it. Fix by removing the dependency from the specific package.json. |
+| **openclaw.config.yml schema mismatch with runtime** | Medium | Medium | The config file is based on DESIGN_v2.md Section 9.2 which was authored for the v2 architecture. If the OpenClaw runtime expects a different schema, the config will need adjustments. The single-file config approach has fewer schema surface area than 15+ v1 config files — easier to validate and fix. |
+| **Migration is reversible at any commit** | N/A | N/A | Every commit in the sequence leaves the workspace buildable. If Phase 2 deletion causes unexpected issues, revert to the Phase 1 commit. Each bounded context deletion is a separate commit — roll back only the problematic one. **Recommended: push each phase's commits to a branch before merging to main.** |
+| **Agent restructuring breaks OpenClaw agent discovery** | Low | Medium | OpenClaw discovers agents by directory convention (`agents/<name>/SOUL.md`). As long as SOUL.md files exist at the expected paths, discovery works. The v2 agent names (spec-parser, architect, tdd-coder, etc.) must match the `identityPath` values in `openclaw.config.yml`. Verify the mapping before merging Phase 4. |
+| **Docker Compose no longer starts API Gateway** | Low | Low | The `pnpm dev` script pointed to `@ulw/api-gateway`. After deletion, local development workflow changes. In v2, `docker compose up` starts OpenClaw Gateway, Redis, MinIO, and Keycloak. The pipeline UI/API is at `localhost:8080` (OpenClaw) instead of `localhost:3000` (NestJS). Update README.md with new local development commands. |
+| **Vitest workspace references stale packages** | Medium | Low | `vitest.workspace.ts` currently lists all 16 packages. After deleting BC + core + app, 10 packages remain. If vitest is run before updating the workspace config, it will fail with missing workspace errors. This is caught by running `pnpm test` as a verification step. Fix is updating `vitest.workspace.ts` in Phase 1 before Phase 2 deletes. |
+| **Residual NestJS patterns in remaining tests** | Low | Low | Some shared package tests or acl test configs may reference `@nestjs/testing` or use NestJS test utilities. These will break after dependency removal. Grep for `@nestjs` in all remaining packages before finalizing Phase 1. |
 
 ---
 
-## Summary
+## Appendix A: pnpm-workspace.yaml — Detailed Catalog Changes
 
-| Phase | Duration | Key Deliverables |
-|-------|----------|-----------------|
-| 0 — Foundation | 1 week | Shared tests, cross-BC fixes, pre-commit hooks |
-| 1 — Core Engine | 2 weeks | NATS, DAG executor, supervisor complete |
-| 2 — BC Implementation | 2 weeks | All 6 BCs functional (mock repos) |
-| 3 — ACL Implementation | 1 week | All 4 ACL implementations |
-| 4 — Integration | 1 week | Real DB/NATS, E2E flows, observability, gateway |
-| 5 — Testing & Polish | 1 week | 80% coverage, e2e tests, contract tests |
-| **Total** | **8 weeks** | **MVP: closed-loop Architecture→Code→Review→Test→Deploy** |
+### Before (v1)
 
-**Team sizing**: 4 developers. Parallel work possible on Phase 2 (one dev per BC, 6 BCs → staggered).
+```yaml
+packages:
+  - "packages/shared/*"
+  - "packages/bc/*"          # ← DELETE
+  - "packages/core/*"        # ← DELETE
+  - "packages/acl/*"
+  - "apps/*"                 # ← DELETE
 
-**Definition of MVP Done**: A StoryCreated event in PM triggers the full pipeline: AD generates architecture spec → CG generates code with TDD guardrails → CR reviews and passes → TA runs tests and passes → DP deploys to canary → human approves → production. All events flow via NATS. All states persisted in PostgreSQL.
+catalog:
+  # Runtime
+  typescript: ^5.7.0
+  "@types/node": ^22.0.0
+  zod: ^3.23.0
 
----
+  # NestJS                     ← DELETE all 4 lines
+  "@nestjs/common": ^10.4.0
+  "@nestjs/core": ^10.4.0
+  "@nestjs/platform-express": ^10.4.0
+  "@nestjs/testing": ^10.4.0
+  "@nestjs/trpc": ^0.4.0
 
-## TODO List
+  # tRPC                       ← DELETE all 3 lines
+  "@trpc/server": ^11.0.0
+  "@trpc/client": ^11.0.0
 
-*Legend: [P0]=Blocking, [P1]=Core, [P2]=Enhancement, [XS]=&lt;0.5d, [S]=0.5-1d, [M]=1-3d, [L]=4-6d, [XL]=7+d*
+  # Database                   ← DELETE all 3 lines
+  drizzle-orm: ^0.40.0
+  drizzle-kit: ^0.28.0
+  postgres: ^3.4.0
 
-### Phase 0 — Foundation (Week 1) ⬜
+  # Messaging & Caching
+  nats: ^2.28.0               ← DELETE (keep ioredis)
+  ioredis: ^5.4.0
 
-#### 0.1 Cross-BC Structural Fixes (Must Complete First)
-- [ ] B0.1 [P0][M] 补充 8 个缺失的 NATS 事件接口类 — `packages/bc/{ad,cg,cr,ta,dp}/src/domain/events/index.ts`
-  - [ ] AD: `ArchitectureProposedEvent`
-  - [ ] CG: `GenerationStartedEvent`, `GenerationFailedEvent`
-  - [ ] CR: `ReviewStartedEvent`, `CheckCompletedEvent`
-  - [ ] TA: `TestRunStartedEvent`
-  - [ ] DP: `ReleaseCreatedEvent`, `StageCompletedEvent`
-- [ ] B0.2 [P0][XS] 修复 TA bug: `TestPassedEvent` / `TestFailedEvent` 使用不同 NATS 主题 — `packages/bc/ta/src/domain/events/index.ts`, `packages/shared/types/src/events.ts`
-- [ ] B0.5 [P0][S] 为全部 6 个 BC 生成 Drizzle 初始迁移文件 — `packages/bc/{pm,ad,cg,cr,ta,dp}/drizzle/`
-- [ ] A1.1 [P0][XS] 去重 NATS 主题常量 — `packages/shared/types/src/events.ts` → 从 `@ulw/shared-events` 重新导出
+  # Auth                       ← DELETE all 3 lines
+  passport: ^0.7.0
+  passport-jwt: ^4.0.1
+  "@nestjs/jwt": ^10.2.0
 
-#### 0.2 Shared Domain Tests
-- [ ] A2.1 [P0][S] `Result<T,E>` 单元测试 (ok/err/isOk/isErr/map/flatMap/match/unwrap) — `packages/shared/domain/src/result.test.ts`
-- [ ] A2.2 [P0][S] `ValueObject` 单元测试 (equality, hashCode) — `packages/shared/domain/src/value-object.test.ts`
-- [ ] A2.3 [P0][S] `Entity` 单元测试 (identity equality, domain event collection) — `packages/shared/domain/src/entity.test.ts`
-- [ ] A2.4 [P0][S] `AggregateRoot` 单元测试 (pullEvents transactional semantics) — `packages/shared/domain/src/aggregate-root.test.ts`
-- [ ] A2.5 [P0][XS] 5 个 DomainError 类型单元测试 — `packages/shared/domain/src/errors.test.ts`
-- [ ] A2.6 [P0][XS] `Identifier<T>` 单元测试 — `packages/shared/domain/src/identifier.test.ts`
+  # Object Storage             ← KEEP
+  "@aws-sdk/client-s3": ^3.600.0
 
-#### 0.3 Shared Events Tests
-- [ ] A3.1 [P0][S] PM 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/project-events.test.ts`
-- [ ] A3.2 [P0][S] AD 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/architecture-events.test.ts`
-- [ ] A3.3 [P0][S] CG 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/code-events.test.ts`
-- [ ] A3.4 [P0][S] CR 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/review-events.test.ts`
-- [ ] A3.5 [P0][S] TA 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/testing-events.test.ts`
-- [ ] A3.6 [P0][S] DP 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/deployment-events.test.ts`
-- [ ] A3.7 [P0][XS] Security 事件 Zod schema 验证测试 — `packages/shared/events/src/schemas/security-events.test.ts`
-- [ ] A3.8 [P0][S] `MessageEnvelopeSchema` + `createEnvelope()` 测试 — `packages/shared/events/src/envelope.test.ts`
+  # Observability              ← KEEP all
+  "@opentelemetry/api": ^1.9.0
+  "@opentelemetry/sdk-node": ^0.53.0
 
-#### 0.4 Shared Config Tests
-- [ ] A4.1 [P0][M] `ConfigLoader` 单元测试 (env var mapping, JSON 加载, deep merge) — `packages/shared/config/src/loader.test.ts`
-- [ ] A4.2 [P0][M] `validateConfig()` 单元测试 (8 个子 schema, 边界情况) — `packages/shared/config/src/validator.test.ts`
+  # Kubernetes                 ← KEEP
+  "@kubernetes/client-node": ^1.0.0
 
-#### 0.5 Quality Gates
-- [ ] H4.1 [P1][S] 添加 pre-commit hooks (husky + lint-staged: eslint, oxlint, prettier) — `.husky/pre-commit`, `.lintstagedrc.json`
-- [ ] H4.2 [P1][S] 添加 commitlint (Conventional Commits 强制) — `commitlint.config.js`
-- [ ] H1.9 [P0][S] 为所有包配置 Vitest coverage — `packages/*/vitest.config.ts`, `apps/*/vitest.config.ts`
+  # Testing                    ← KEEP all
+  vitest: ^3.0.0
+  "@vitest/coverage-v8": ^3.0.0
+  "@playwright/test": ^1.50.0
+  "@pact-foundation/pact": ^13.0.0
 
----
+  # Linting                    ← KEEP all
+  eslint: ^9.0.0
+  prettier: ^3.4.0
+  oxlint: ^0.15.0
+  typescript-eslint: ^8.0.0
+  eslint-plugin-import: ^2.31.0
+  eslint-plugin-unicorn: ^56.0.0
 
-### Phase 1 — Core Engine Enablement (Week 2-3) ⬜
+  # Build                      ← KEEP all
+  tsup: ^8.3.0
+  tsx: ^4.19.0
+```
 
-#### 1.1 NATS Integration
-- [ ] C2.1 [P0][M] 实现 `NATSPublisher.publish()` — 真实 NATS 连接, 发布到 JetStream — `packages/core/supervisor/src/messaging/nats-publisher.ts`
-- [ ] C2.2 [P0][M] 实现 `NATSConsumer.subscribeToStatusEvents()` — 订阅 agent heartbeat 和 task result 主题 — `packages/core/supervisor/src/messaging/nats-consumer.ts`
+### After (v2)
 
-#### 1.2 DAG Executor
-- [ ] C2.3 [P0][L] 实现 `DAGExecutor.executeDAG()` — 遍历 executionOrder, 检查依赖, 通过 NATS 分发 spec, 收集结果 — `packages/core/supervisor/src/executor/dag-executor.ts`
-- [ ] C2.4 [P1][M] 实现 `DAGExecutor.executeParallel()` — 同 wave 内 spec 并行分发 — 同上
-- [ ] C2.7 [P0][M] 连接 `SupervisorService.executeDAG()` — NATS + DAGExecutor + HeartbeatMonitor + RetryManager — `packages/core/supervisor/src/supervisor.service.ts`
-- [ ] C2.8 [P0][XS] 为 supervisor state tables 生成 Drizzle 迁移 — `packages/core/supervisor/drizzle/`
+```yaml
+packages:
+  - "packages/shared/*"
+  - "packages/acl/*"
+  - "packages/pipeline/*"    # ← NEW
 
-#### 1.3 Orchestrator ↔ Supervisor
-- [ ] C1.1 [P0][M] 实现 `routeToSupervisor()` — 将分解后的 DAG 发布到 NATS `ulw.orchestrator.dag.dispatched` — `packages/core/orchestrator/src/orchestrator.service.ts`
+catalog:
+  # Runtime
+  typescript: ^5.7.0
+  "@types/node": ^22.0.0
+  zod: ^3.23.0
 
-#### 1.4 Core Tests
-- [ ] C1.5 [P0][M] Orchestrator 单元测试 (service, decomposer, intent parser, agent router) — `packages/core/orchestrator/tests/`
-- [ ] C2.9 [P0][M] Supervisor 单元测试 (DAG executor, retry manager, heartbeat monitor, session manager) — `packages/core/supervisor/tests/`
+  # Messaging & Caching
+  ioredis: ^5.4.0
 
----
+  # Object Storage
+  "@aws-sdk/client-s3": ^3.600.0
 
-### Phase 2 — BC Implementation: Bottom-Up (Week 3-5) ⬜
+  # Observability
+  "@opentelemetry/api": ^1.9.0
+  "@opentelemetry/sdk-node": ^0.53.0
 
-#### 2.1 BC-PM — Project Management (Day 1-3)
-- [ ] B1.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/pm/drizzle/`
-- [ ] B1.2 [P0][M] 实现 `ProjectRepository` — `packages/bc/pm/src/infrastructure/persistence/repositories/project.repository.ts`
-- [ ] B1.3 [P0][M] 实现 `SprintRepository` — `packages/bc/pm/src/infrastructure/persistence/repositories/sprint.repository.ts`
-- [ ] B1.4 [P0][M] 实现 `StoryRepository` — `packages/bc/pm/src/infrastructure/persistence/repositories/story.repository.ts`
-- [ ] B1.5 [P0][M] 在 use cases 中添加事件发布 (StoryCreated, StoryReady, SprintCommitted) — `packages/bc/pm/src/application/use-cases/index.ts`
-- [ ] B1.13 [P0][M] Use cases 单元测试 (mock repos) — `packages/bc/pm/tests/application/use-cases.test.ts`
-- [ ] B1.6 [P1][M] 实现 GetProj/UpdateProj/DeleteProj/ListProj use cases — 同上
-- [ ] B1.11 [P1][S] 完成 `ProjectController` CRUD — `packages/bc/pm/src/interface/controllers/project.controller.ts`
+  # Kubernetes
+  "@kubernetes/client-node": ^1.0.0
 
-#### 2.2 BC-AD — Architecture Design (Day 3-5)
-- [ ] B2.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/ad/drizzle/`
-- [ ] B2.2 [P0][XS] 添加 `ArchitectureProposedEvent` 接口类 — `packages/bc/ad/src/domain/events/index.ts`
-- [ ] B2.3 [P0][M] 实现 `ArchitectureSpecRepository` — `packages/bc/ad/src/infrastructure/persistence/repositories/`
-- [ ] B2.4 [P0][M] 实现 `ApiContractRepository` — 同上
-- [ ] B2.5 [P0][M] 在 use cases 中添加事件发布 (ArchitectureProposed/Approved/Rejected, ContractPublished) — `packages/bc/ad/src/application/use-cases/index.ts`
-- [ ] B2.11 [P0][M] Use cases 单元测试 — `packages/bc/ad/tests/application/use-cases.test.ts`
-- [ ] B2.9 [P1][M] 完成 `ArchitectureController` — `packages/bc/ad/src/interface/controllers/architecture.controller.ts`
+  # Testing
+  vitest: ^3.0.0
+  "@vitest/coverage-v8": ^3.0.0
+  "@playwright/test": ^1.50.0
+  "@pact-foundation/pact": ^13.0.0
 
-#### 2.3 BC-CG — Code Generation (Day 5-8)
-- [ ] B3.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/cg/drizzle/`
-- [ ] B3.2 [P0][XS] 添加 `GenerationStartedEvent` / `GenerationFailedEvent` 接口类 — `packages/bc/cg/src/domain/events/index.ts`
-- [ ] B3.3 [P0][M] 实现 `GenerationTaskRepository` — `packages/bc/cg/src/infrastructure/persistence/repositories/`
-- [ ] B3.4 [P0][M] 实现 `GeneratedFileRepository` — 同上
-- [ ] B3.5 [P0][M] 实现 `PullRequestRepository` — 同上
-- [ ] B3.6 [P0][S] 在 `StartGenerationUseCase` 中添加事件发布 (GenerationStarted) — `packages/bc/cg/src/application/use-cases/index.ts`
-- [ ] B3.7 [P0][M] 在 `TransitionTDDUseCase` 中添加事件发布 (TDDTransition, CodeReady, GenerationFailed) — 同上
-- [ ] B3.12 [P0][M] TDD 状态机 + use cases 单元测试 — `packages/bc/cg/tests/application/`
+  # Linting
+  eslint: ^9.0.0
+  prettier: ^3.4.0
+  oxlint: ^0.15.0
+  typescript-eslint: ^8.0.0
+  eslint-plugin-import: ^2.31.0
+  eslint-plugin-unicorn: ^56.0.0
 
-#### 2.4 BC-CR — Code Review (Day 8-10)
-- [ ] B4.1 [P0][XS] 生成 Drizzle 迁移 (pgEnum-based) — `packages/bc/cr/drizzle/`
-- [ ] B4.2 [P0][XS] 添加 `ReviewStartedEvent` / `CheckCompletedEvent` 接口类 — `packages/bc/cr/src/domain/events/index.ts`
-- [ ] B4.3 [P0][M] 实现 `ReviewSessionRepository` — `packages/bc/cr/src/infrastructure/persistence/repositories/`
-- [ ] B4.4 [P0][M] 实现 `ReviewCheckRepository` — 同上
-- [ ] B4.5 [P0][M] 实现 `ViolationRepository` — 同上
-- [ ] B4.9 [P0][M] 在 use cases 中添加事件发布 (ReviewStarted, CheckCompleted, ReviewPassed/ReviewFailed) — `packages/bc/cr/src/application/use-cases/index.ts`
-- [ ] B4.12 [P0][M] Use cases 单元测试 — `packages/bc/cr/tests/application/`
+  # Build
+  tsup: ^8.3.0
+  tsx: ^4.19.0
+```
 
-#### 2.5 BC-TA — Test Automation (Day 10-12)
-- [ ] B5.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/ta/drizzle/`
-- [ ] B5.2 [P0][XS] 添加 `TestRunStartedEvent` 接口类 — `packages/bc/ta/src/domain/events/index.ts`
-- [ ] B5.3 [P0][XS] 修复 B0.2 — `TestPassedEvent` / `TestFailedEvent` 区分 NATS 主题
-- [ ] B5.4 [P0][M] 实现 `TestSuiteRepository` — `packages/bc/ta/src/infrastructure/persistence/repositories/`
-- [ ] B5.5 [P0][M] 实现 `TestCaseRepository` — 同上
-- [ ] B5.6 [P0][M] 实现 `TestRunRepository` — 同上
-- [ ] B5.12 [P0][M] 在 use cases 中添加事件发布 (TestRunStarted, TestCaseCompleted, TestPassed/TestFailed, ContractBroken) — `packages/bc/ta/src/application/use-cases/index.ts`
-- [ ] B5.14 [P0][M] Use cases 单元测试 — `packages/bc/ta/tests/application/`
-
-#### 2.6 BC-DP — Deployment (Day 12-15)
-- [ ] B6.1 [P0][XS] 生成 Drizzle 迁移 — `packages/bc/dp/drizzle/`
-- [ ] B6.2 [P0][XS] 添加 `ReleaseCreatedEvent` / `StageCompletedEvent` 接口类 — `packages/bc/dp/src/domain/events/index.ts`
-- [ ] B6.3 [P0][M] 实现 `ReleaseRepository` — `packages/bc/dp/src/infrastructure/persistence/repositories/`
-- [ ] B6.4 [P0][M] 实现 `PipelineStageRepository` — 同上
-- [ ] B6.5 [P0][M] 实现 `RollbackRepository` — 同上
-- [ ] B6.11 [P0][M] 在 use cases 中添加事件发布 (ReleaseCreated, StageCompleted, Deployed, RollbackTriggered) — `packages/bc/dp/src/application/use-cases/index.ts`
-- [ ] B6.14 [P0][M] Use cases 单元测试 — `packages/bc/dp/tests/application/`
+**Removed catalog entries**: NestJS (5), tRPC (3), Drizzle/PostgreSQL (3), NATS (1), Passport/JWT (3) = 15 dependencies removed. Total catalog lines reduced from 66 to 44.
 
 ---
 
-### Phase 3 — ACL Implementation (Week 5-7) ⬜
+## Appendix B: docker-compose.yml — Migration Detail
 
-#### 3.1 OpenCode ACL
-- [ ] E1.1 [P0][L] 实现 `TDDStateMachine` — RED→GREEN→REFACTOR 状态转换表 — `packages/acl/opencode-acl/src/tdd-state-machine.ts`
-- [ ] E1.2 [P0][L] 实现 `OpenCodeRuntimeService` — session 创建, prompt 分发, result 收集 — `packages/acl/opencode-acl/src/opencode-runtime.ts`
-- [ ] E1.5 [P0][M] TDD 状态机单元测试 — `packages/acl/opencode-acl/src/tdd-state-machine.test.ts`
-- [ ] E1.6 [P0][M] Worktree 生命周期集成测试 — `packages/acl/opencode-acl/src/worktree-service.test.ts`
-- [ ] E1.3 [P1][M] 实现 `CodeAdapter` — OpenCode tool events → TDD transitions 映射 — `packages/acl/opencode-acl/src/code-adapter.ts`
-- [ ] E1.4 [P1][M] 实现 `WorktreeService` — git worktree create/checkout/cleanup — `packages/acl/opencode-acl/src/worktree-service.ts`
+### Before (v1 — 6 services)
 
-#### 3.2 Git ACL
-- [ ] E2.1 [P0][M] 实现 `GitHubPRClient` — create PR, update, merge, get checks — `packages/acl/git-acl/src/github-pr-client.ts`
-- [ ] E2.4 [P0][M] 实现 `WorktreeService` — create/lock/unlock/prune/list — `packages/acl/git-acl/src/worktree-service.ts`
-- [ ] E2.5 [P0][M] 单元测试 (mocked git shell 输出, mocked GitHub API) — `packages/acl/git-acl/src/*.test.ts`
-- [ ] E2.3 [P1][M] 实现 `GitAdapter` — diff, status, sync, createPR — `packages/acl/git-acl/src/git-adapter.ts`
+```yaml
+services:
+  postgres:           # ← DELETE
+    image: postgres:16-alpine
+    ...
+  redis:              # ← KEEP
+    image: redis:7-alpine
+    ...
+  nats:               # ← DELETE
+    image: nats:2.10-alpine
+    ...
+  minio:              # ← KEEP
+    image: minio/minio:latest
+    ...
+  keycloak:           # ← KEEP
+    image: quay.io/keycloak/keycloak:latest
+    ...
+  api-gateway:        # ← DELETE
+    image: api-gateway:latest
+    ...
+```
 
-#### 3.3 OpenClaw ACL
-- [ ] E3.1 [P0][M] 实现 `OpenClawRuntimeService` — 评审 pipeline 的 session management — `packages/acl/openclaw-acl/src/openclaw-runtime.ts`
-- [ ] E3.4 [P0][M] 单元测试 — `packages/acl/openclaw-acl/src/*.test.ts`
-- [ ] E3.2 [P1][M] 实现 `ReviewAdapter` — ulw review check types → OpenClaw ACP stages 映射 — `packages/acl/openclaw-acl/src/review-adapter.ts`
+### After (v2 — 4 services)
 
-#### 3.4 CI/CD ACL
-- [ ] E4.1 [P0][L] 实现 `K8sClientService` — deployment CRUD via `@kubernetes/client-node` — `packages/acl/cicd-acl/src/k8s-client.ts`
-- [ ] E4.5 [P0][M] 单元测试 (mocked K8s/ArgoCD APIs) — `packages/acl/cicd-acl/src/*.test.ts`
-- [ ] E4.2 [P1][M] 实现 `ArgoClientService` — application sync/status/rollback — `packages/acl/cicd-acl/src/argo-client.ts`
-- [ ] E4.4 [P1][M] 实现 `ApprovalGateService` — create/poll/approve/deny — `packages/acl/cicd-acl/src/approval-gate.ts`
+```yaml
+services:
+  openclaw:           # ← NEW
+    image: openclaw-gateway:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./openclaw.config.yml:/etc/openclaw/config.yml
+    depends_on:
+      - redis
+      - minio
+      - keycloak
+
+  redis:              # ← UNCHANGED
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  minio:              # ← UNCHANGED
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: ulw-admin
+      MINIO_ROOT_PASSWORD: changeme
+
+  keycloak:           # ← UNCHANGED
+    image: quay.io/keycloak/keycloak:latest
+    ports:
+      - "8443:8443"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: changeme
+    command: start-dev
+
+volumes:
+  minio-data:
+```
+
+**Removed services**: PostgreSQL (port 5432), NATS (port 4222), API Gateway (port 3000).
+**Added service**: OpenClaw Gateway (port 8080).
 
 ---
 
-### Phase 4 — Integration & End-to-End Flow (Week 7) ⬜
+## Appendix C: Post-Migration Verification Checklist
 
-#### 4.1 NATS Event Bus Verification
-- [ ] G2.2 [P0][M] 验证每个 BC 的消费者组 — 订阅上游事件 (PM→AD, AD→CG, CG→CR, CR↔TA, TA→DP) — `packages/bc/*/src/infrastructure/messaging/`
-- [ ] B0.7 [P0][M] 所有 6 个 NATS 事件发布者接入真实连接 (替换 `Not implemented` stubs) — `packages/bc/*/src/infrastructure/messaging/`
+After completing all 5 phases, perform these end-to-end verifications:
 
-#### 4.2 API Gateway
-- [ ] D1.1 [P1][S] 实现 `ProjectController.list()` — `apps/api-gateway/src/rest/project/project.controller.ts`
-- [ ] D1.11 [P0][M] E2E 测试 (health endpoint, REST endpoints, auth flow) — `apps/api-gateway/tests/`
+### C.1 Monorepo Health
 
-#### 4.3 Cross-BC Integration Tests
-- [ ] G1.1 [P1][L] 全流水线集成测试: PM StoryReady → AD ArchitectureApproved → CG CodeReady → CR ReviewPassed → TA TestPassed → DP Deployed — `tests/integration/end-to-end-flow.test.ts`
-- [ ] G1.2 [P1][M] Review bounce 测试: CR ReviewFailed → CG 开始新循环 — `tests/integration/review-bounce.test.ts`
-- [ ] G1.3 [P1][M] Canary rollback 测试: DP canary 阶段失败 → 自动回滚 — `tests/integration/canary-rollback.test.ts`
+```bash
+# Verify directory structure
+ls packages/shared/domain/     # must exist (DDD base classes)
+ls packages/shared/types/      # must exist (shared types)
+ls packages/shared/events/     # must exist (Zod event schemas)
+ls packages/shared/config/     # must exist (config loader)
+ls packages/acl/               # must exist (4 ACL interface packages)
+ls packages/pipeline/          # must exist (new pipeline state types)
+ls agents/spec-parser/         # must exist (7 pipeline agents)
+ls agents/architect/           # must exist
+ls agents/tdd-coder/           # must exist
+ls agents/reviewer/            # must exist
+ls agents/tester/              # must exist
+ls agents/deployer/            # must exist
+ls agents/reviewer/sub-agents/ # must exist (6 sub-agents)
+ls skills/                     # must have 8 SKILL.md files
+ls infrastructure/             # must have simplified Pulumi stack
+ls openclaw.config.yml         # must exist
+ls .ulw/                       # must exist (governance policies)
+
+# Verify deleted directories are gone
+ls packages/bc/   2>/dev/null && echo "FAIL: bc/ exists" || echo "PASS: bc/ removed"
+ls packages/core/ 2>/dev/null && echo "FAIL: core/ exists" || echo "PASS: core/ removed"
+ls apps/          2>/dev/null && echo "FAIL: apps/ exists" || echo "PASS: apps/ removed"
+
+# Verify no broken imports in remaining code
+! grep -r "from '@ulw/bc-" packages/ --include="*.ts" || echo "FAIL: BC imports found"
+! grep -r "from '@ulw/orchestrator'" packages/ --include="*.ts" || echo "FAIL: orchestrator imports found"
+! grep -r "from '@ulw/supervisor'" packages/ --include="*.ts" || echo "FAIL: supervisor imports found"
+! grep -r "@nestjs" packages/acl/ --include="*.ts" || echo "FAIL: NestJS in ACLs"
+```
+
+### C.2 Build Verification
+
+```bash
+pnpm install        # regenerate lockfile
+pnpm typecheck      # TypeScript must pass
+pnpm lint           # ESLint + Oxlint must pass
+pnpm build          # all remaining packages must compile
+pnpm test           # all remaining tests must pass
+pnpm format:check   # code formatting must be consistent
+```
+
+### C.3 V2-Specific Verification
+
+```bash
+# Pipeline package is importable
+node -e "require('@ulw/pipeline')" 2>/dev/null || echo "Cannot resolve @ulw/pipeline (expected if not built)"
+
+# Agent structure matches openclaw.config.yml
+grep "identityPath" openclaw.config.yml | while read line; do
+  dir=$(echo "$line" | grep -o '"agents/[^"]*"' | tr -d '"')
+  [ -d "$dir" ] && echo "PASS: $dir" || echo "FAIL: $dir missing"
+done
+
+# Skill paths are valid
+grep "path:" openclaw.config.yml | grep skills/ | while read line; do
+  path=$(echo "$line" | grep -o '"skills/[^"]*"' | tr -d '"')
+  [ -f "${path}/SKILL.md" ] && echo "PASS: ${path}/SKILL.md" || echo "FAIL: ${path}/SKILL.md missing"
+done
+
+# All 6 pipeline stages defined in configuration
+grep -A1 "name:" openclaw.config.yml | grep -E "spec-parsing|architecture-design|tdd-code-generation|code-review|automated-testing|one-click-deployment" | wc -l
+# Expected output: 6
+```
+
+### C.4 File Count Verification
+
+```bash
+# Total source files after migration (approximate)
+find packages/ -name "*.ts" -not -path "*/dist/*" -not -path "*/node_modules/*" | wc -l
+# Expected: ~40-50 (down from ~293 in v1)
+
+# Agent identity files
+find agents/ -name "*.md" | wc -l
+# Expected: 33 (11 agents × 3 files each)
+
+# Skill files
+find skills/ -name "SKILL.md" | wc -l
+# Expected: 8
+
+# Infrastructure files
+find infrastructure/ -name "*.ts" -not -path "*/node_modules/*" | wc -l
+# Expected: ~10 (down from 15, PG + NATS removed)
+```
 
 ---
 
-### Phase 5 — Testing & Quality Gates (Week 8) ⬜
-
-#### 5.1 Coverage Push (80% Target)
-- [ ] Run `pnpm test:coverage` across all packages, verify ≥80% line coverage on:
-  - [ ] `@ulw/shared-types` (H1.1)
-  - [ ] `@ulw/shared-domain` (H1.2)
-  - [ ] `@ulw/shared-events` (H1.3)
-  - [ ] `@ulw/shared-config` (H1.4)
-  - [ ] `@ulw/orchestrator` (H1.5)
-  - [ ] `@ulw/supervisor` (H1.6)
-  - [ ] `@ulw/bc-pm` (H1.7)
-  - [ ] `@ulw/bc-ad` (H1.7)
-  - [ ] `@ulw/bc-cg` (H1.7)
-  - [ ] `@ulw/bc-cr` (H1.7)
-  - [ ] `@ulw/bc-ta` (H1.7)
-  - [ ] `@ulw/bc-dp` (H1.7)
-  - [ ] `@ulw/acl-*` × 4 packages (H1.8)
-
-#### 5.2 CI/CD Pipeline Finalization
-- [ ] F3.1 [P2][M] 接入 E2E 测试 job 到 CI workflow — `.github/workflows/ci.yml`
-- [ ] F3.2 [P2][S] 接入 contract test stage 到 review pipeline — `.github/workflows/review-pipeline.yml`
-
----
-
-### Progress Tracking
-
-| Phase | Tasks | Completed | Status |
-|-------|-------|-----------|--------|
-| 0 — Foundation | 24 | 0 | ⬜ Not Started |
-| 1 — Core Engine | 7 | 0 | ⬜ Not Started |
-| 2 — BC Implementation | 42 | 0 | ⬜ Not Started |
-| 3 — ACL Implementation | 14 | 0 | ⬜ Not Started |
-| 4 — Integration | 6 | 0 | ⬜ Not Started |
-| 5 — Testing & Polish | 16 | 0 | ⬜ Not Started |
-| **Total** | **109** | **0** | — |
+> **Document Status**: Planning v2.0 — 2026-04-30
+> **Next Steps**: Phase 2 (delete BCs + Core + API Gateway) → Phase 3 (ACL) → Phase 4 (agents) → Phase 5 (infra)
+> **Based on**: DESIGN_v2.md (2035 lines), current v1 monorepo state (verified via `find packages/ apps/ -type f`)

@@ -15,11 +15,11 @@ Markdown Spec → Architecture Design → TDD Code Gen → Code Review → Autom
 5. Automated testing runs at 4 levels: unit, integration, contract, and E2E
 6. After your approval, a canary deployment rolls out with automatic health checks and rollback
 
-## Architecture (v2)
+## Architecture
 
-OpenClaw is the central gateway and orchestration engine. OpenCode is the TDD coding runtime. Pipeline state is session-based (OpenClaw + Redis). Artifacts are stored as JSON in MinIO. No PostgreSQL, no NATS message bus, no NestJS API gateway.
+OpenClaw is the central gateway and orchestration engine. OpenCode is the TDD coding runtime. Pipeline state is session-based (OpenClaw + Redis). Artifacts are stored as JSON in MinIO.
 
-See [DESIGN_v2.md](docs/DESIGN_v2.md) for the full architecture document.
+See [DESIGN.md](docs/DESIGN.md) for the full architecture document.
 
 ## Quick Start
 
@@ -61,10 +61,10 @@ openclaw.config.yml    — Single-file configuration for the entire platform
 
 | Document | Description |
 |----------|-------------|
-| [DESIGN_v2.md](docs/DESIGN_v2.md) | v2 architecture — SDD+TDD pipeline (current target) |
-| [MODULE_PLAN_v2.md](docs/MODULE_PLAN_v2.md) | v2 migration plan with TODO checklist |
-| [DESIGN.md](docs/DESIGN.md) | v1 architecture — DDD microservices (legacy reference) |
-| [MODULE_PLAN.md](docs/MODULE_PLAN.md) | v1 module completion plan (legacy reference) |
+| [DESIGN.md](docs/DESIGN.md) | Architecture — SDD+TDD pipeline platform |
+| [DESIGN_zh.md](docs/DESIGN_zh.md) | Architecture (中文) |
+| [MODULE_PLAN.md](docs/MODULE_PLAN.md) | Migration plan and TODO checklist |
+| [MODULE_PLAN_zh.md](docs/MODULE_PLAN_zh.md) | Migration plan (中文) |
 
 ## Conventions
 

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   PipelineStage,
-  createPipelineRun,
   type StageResult,
 } from '../src/state-model.js';
 import { executeStage } from '../src/stage-executor.js';

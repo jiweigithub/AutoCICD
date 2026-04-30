@@ -6,7 +6,7 @@ import {
   type PipelineRun,
   type StageResult,
 } from '../src/state-model.js';
-import { executeStage, type StageExecutor } from '../src/stage-executor.js';
+import { type StageExecutor } from '../src/stage-executor.js';
 import { Pipeline } from '../src/pipeline.js';
 
 const passingExecutor: StageExecutor = {

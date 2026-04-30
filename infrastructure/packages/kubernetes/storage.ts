@@ -2,19 +2,6 @@ import * as k8s from "@pulumi/kubernetes";
 
 const namespace = "ulw";
 
-export const postgresPVC = new k8s.core.v1.PersistentVolumeClaim("postgres-pvc", {
-  metadata: {
-    namespace,
-    name: "postgresql-data",
-    labels: { "app.kubernetes.io/name": "postgresql" },
-  },
-  spec: {
-    accessModes: ["ReadWriteOnce"],
-    resources: { requests: { storage: "20Gi" } },
-    storageClassName: "standard",
-  },
-});
-
 export const redisPVC = new k8s.core.v1.PersistentVolumeClaim("redis-pvc", {
   metadata: {
     namespace,

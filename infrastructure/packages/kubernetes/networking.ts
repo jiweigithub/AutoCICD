@@ -18,7 +18,6 @@ export const networkPolicies = new k8s.networking.v1.NetworkPolicy("ulw-network-
           { namespaceSelector: { matchLabels: { name: "ingress-nginx" } } },
         ],
         ports: [
-          { port: 3000, protocol: "TCP" },
           { port: 8080, protocol: "TCP" },
           { port: 9090, protocol: "TCP" },
         ],
@@ -28,9 +27,7 @@ export const networkPolicies = new k8s.networking.v1.NetworkPolicy("ulw-network-
       {
         to: [
           { namespaceSelector: { matchLabels: { name: "ulw" } } },
-          { podSelector: { matchLabels: { "app.kubernetes.io/name": "postgresql" } } },
           { podSelector: { matchLabels: { "app.kubernetes.io/name": "redis" } } },
-          { podSelector: { matchLabels: { "app.kubernetes.io/name": "nats" } } },
           { podSelector: { matchLabels: { "app.kubernetes.io/name": "minio" } } },
         ],
       },
@@ -47,35 +44,6 @@ export const networkPolicies = new k8s.networking.v1.NetworkPolicy("ulw-network-
 });
 
 const nodePortType: pulumi.Input<"ClusterIP"> = "ClusterIP";
-
-export const orchestratorService = new k8s.core.v1.Service("ulw-orchestrator-svc", {
-  metadata: {
-    namespace,
-    name: "ulw-orchestrator",
-    labels: { "app.kubernetes.io/component": "orchestrator" },
-  },
-  spec: {
-    type: nodePortType,
-    selector: { "app.kubernetes.io/name": "orchestrator" },
-    ports: [{ name: "http", port: 3000, targetPort: 3000, protocol: "TCP" }],
-  },
-});
-
-export const apiGatewayService = new k8s.core.v1.Service("ulw-api-gateway-svc", {
-  metadata: {
-    namespace,
-    name: "ulw-api-gateway",
-    labels: { "app.kubernetes.io/component": "api-gateway" },
-  },
-  spec: {
-    type: nodePortType,
-    selector: { "app.kubernetes.io/name": "api-gateway" },
-    ports: [
-      { name: "http", port: 8080, targetPort: 8080, protocol: "TCP" },
-      { name: "trpc", port: 9090, targetPort: 9090, protocol: "TCP" },
-    ],
-  },
-});
 
 export const ingress = new k8s.networking.v1.Ingress("ulw-ingress", {
   metadata: {
@@ -103,7 +71,7 @@ export const ingress = new k8s.networking.v1.Ingress("ulw-ingress", {
               path: "/",
               pathType: "Prefix",
               backend: {
-                service: { name: apiGatewayService.metadata.name, port: { number: 8080 } },
+                service: { name: "openclaw", port: { number: 8080 } },
               },
             },
           ],
@@ -117,25 +85,18 @@ export const configMaps = new k8s.core.v1.ConfigMap("ulw-config", {
   metadata: { namespace, name: "ulw-config" },
   data: {
     "environment": environment,
-    "nats.url": "nats://nats.ulw.svc.cluster.local:4222",
     "redis.url": "redis://redis.ulw.svc.cluster.local:6379",
     "minio.endpoint": "http://minio.ulw.svc.cluster.local:9000",
-    "postgres.host": "postgresql.ulw.svc.cluster.local",
-    "postgres.port": "5432",
-    "postgres.database": "ulw",
     "log.level": environment === "production" ? "info" : "debug",
-    "agent.sandbox.runtime": "gvisor",
-    "agent.max.concurrency": environment === "production" ? "10" : "3",
+    "openclaw.max.concurrency": environment === "production" ? "10" : "3",
   },
 });
 
 export const secrets = new k8s.core.v1.Secret("ulw-secrets", {
   metadata: { namespace, name: "ulw-secrets" },
   stringData: {
-    "postgres.password": "changeme-in-prod-use-sealed-secrets",
     "redis.password": "changeme-in-prod-use-sealed-secrets",
     "minio.access-key": "minioadmin",
     "minio.secret-key": "changeme-in-prod-use-sealed-secrets",
-    "nats.auth-token": "changeme-in-prod-use-sealed-secrets",
   },
 });
