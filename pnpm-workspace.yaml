@@ -16,8 +16,8 @@ catalog:
   "@aws-sdk/client-s3": ^3.600.0
 
   # Observability
-  "@opentelemetry/api": ^1.9.0
-  "@opentelemetry/sdk-node": ^0.53.0
+  "@opentelemetry/api": ^1.9.1
+  "@opentelemetry/sdk-node": ^0.216.0
 
   # Kubernetes
   "@kubernetes/client-node": ^1.0.0
